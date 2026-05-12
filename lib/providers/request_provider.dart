@@ -278,6 +278,38 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
     }
   }
 
+  Future<void> fetchRequestById(String id) async {
+    try {
+      final response = await _apiService.get('/requests/$id');
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final dynamic decoded = json.decode(response.body);
+        final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
+        final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
+        
+        bool found = false;
+        final newList = state.requests.map((req) {
+          if (req.id == updatedReq.id || req.slNo == updatedReq.slNo) {
+            found = true;
+            return updatedReq.copyWith(
+              unreadChatCount: req.unreadChatCount,
+              isRead: updatedReq.isRead || req.isRead,
+            );
+          }
+          return req;
+        }).toList();
+        
+        if (!found) {
+          newList.add(updatedReq);
+        }
+        
+        state = state.copyWith(requests: newList);
+        _sortRequests();
+      }
+    } catch (e) {
+      debugPrint('DEBUG: fetchRequestById Error: $e');
+    }
+  }
+
   Future<void> fetchHODPendingRequests() async {
     state = state.copyWith(isLoading: true);
     try {
@@ -459,24 +491,33 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
     }
   }
 
-  Future<bool> updateStatus(String ticketId, RequestStatus status, {String comment = '', bool isRM = false, bool isHOD = false, bool isAdmin = false, bool isDeptHOD = false, bool isManagement = false}) async {
+  Future<bool> updateStatus(String ticketId, RequestStatus status, {String comment = '', bool isRM = false, bool isHOD = false, bool isAdmin = false, bool isDeptHOD = false, bool isManagement = false, DateTime? checkingDeadline, String? checkingDeadlineReason}) async {
     try {
       String decision = 'Pending';
+      Map<String, dynamic> body = {'comment': comment};
+
       if (status == RequestStatus.approved) decision = 'Approved';
       else if (status == RequestStatus.rejected) decision = 'Rejected';
-      else if (status == RequestStatus.checking) decision = 'Checking';
+      else if (status == RequestStatus.checking) {
+        decision = 'Checking';
+        if (checkingDeadline != null) {
+          body['checkingDeadline'] = checkingDeadline.toIso8601String();
+        }
+        if (checkingDeadlineReason != null) {
+          body['checkingDeadlineReason'] = checkingDeadlineReason;
+        }
+      }
       else if (status == RequestStatus.closed) decision = 'Closed';
       else if (status == RequestStatus.resolved) decision = 'Resolved';
 
-      final response = await _apiService.patch('/requests/$ticketId/approval', {
-        'decision': decision,
-        'comment': comment,
-      });
+      body['decision'] = decision;
+
+      final response = await _apiService.patch('/requests/$ticketId/approval', body);
 
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final dynamic decoded = json.decode(response.body);
         final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
-        final updatedReq = RequestModel.fromMap(data);
+        final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
         
         state = state.copyWith(requests: [
           for (final req in state.requests)
@@ -506,7 +547,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final dynamic decoded = json.decode(response.body);
         final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
-        final updatedReq = RequestModel.fromMap(data);
+        final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
         
         state = state.copyWith(requests: [
           for (final req in state.requests)
@@ -532,7 +573,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final dynamic decoded = json.decode(response.body);
         final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
-        final updatedReq = RequestModel.fromMap(data);
+        final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
         
         state = state.copyWith(requests: [
           for (final req in state.requests)
@@ -560,7 +601,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final dynamic decoded = json.decode(response.body);
         final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
-        final updatedReq = RequestModel.fromMap(data);
+        final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
         
         state = state.copyWith(requests: [for (final req in state.requests) if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req]);
         _sortRequests();
@@ -582,7 +623,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final dynamic decoded = json.decode(response.body);
         final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
-        final updatedReq = RequestModel.fromMap(data);
+        final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
         
         state = state.copyWith(requests: [
           for (final req in state.requests)

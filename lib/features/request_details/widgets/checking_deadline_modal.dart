@@ -65,18 +65,17 @@ class _CheckingDeadlineModalState extends ConsumerState<CheckingDeadlineModal> {
     final role = user?.role.toUpperCase();
     
     // Combine deadline and reason for the comment field
-    final formattedDate = DateFormat('MM/dd/yyyy').format(_selectedDate!);
-    final combinedComment = "DEADLINE: $formattedDate | PLAN: $reason";
-
     final success = await ref.read(requestProvider.notifier).updateStatus(
       widget.ticketId, 
       RequestStatus.checking, 
-      comment: combinedComment,
+      comment: '', // Comment field can be empty now
       isRM: role == 'RM', 
       isHOD: role == 'HOD',
       isDeptHOD: role == 'DEPTHOD',
       isAdmin: role == 'ADMIN',
-      isManagement: role == 'MANAGEMENT'
+      isManagement: role == 'MANAGEMENT',
+      checkingDeadline: _selectedDate, // Pass the selected date
+      checkingDeadlineReason: reason,   // Pass the reason
     );
 
     if (mounted) {

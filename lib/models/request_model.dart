@@ -24,6 +24,8 @@ class RequestModel {
   final List<String>? assignedDepartments; 
   final List<String>? assignedPersons;
   final DateTime? dueDate;
+  final DateTime? checkingDeadline;
+  final String? checkingDeadlineReason; 
   final RequestStatus overallStatus;
   final DateTime? overallStatusDate;
   final bool isRead;
@@ -55,6 +57,8 @@ class RequestModel {
     this.assignedDepartments,
     this.assignedPersons,
     this.dueDate,
+    this.checkingDeadline,
+    this.checkingDeadlineReason, 
     this.overallStatus = RequestStatus.open,
     this.overallStatusDate,
     this.isRead = false,
@@ -66,19 +70,14 @@ class RequestModel {
     this.resolutionNote,
   });
 
-  // Backward compatibility getter for list displays
   String? get assignedDepartment => (assignedDepartments != null && assignedDepartments!.isNotEmpty) 
       ? assignedDepartments!.join(', ') 
       : null;
 
   factory RequestModel.fromMap(Map<String, dynamic> map) {
-    // Parse the status from various possible fields
     String? rawStatus = map['status']?.toString() ?? map['assignedStatus']?.toString();
     RequestStatus status = _parseStatus(rawStatus);
     
-    // Logic from API response:
-    // If isClosed is true -> Ticket is fully finalized
-    // If status is "Closed" but isClosed is false -> Finalized by HOD, awaiting Requestor Acknowledgement
     bool isActuallyClosed = map['isClosed'] == true || rawStatus?.toLowerCase() == 'fully closed' || rawStatus?.toLowerCase() == 'closed and finalized';
     
     if (isActuallyClosed) {
@@ -90,7 +89,6 @@ class RequestModel {
     final dynamic rawUrl = map['fileUrl'] ?? map['filePath'];
     String? fileName = map['fileName'];
 
-    // Parse assignedDept (handle string or list from API)
     List<String>? depts;
     if (map['assignedDept'] != null) {
       if (map['assignedDept'] is List) {
@@ -100,7 +98,6 @@ class RequestModel {
       }
     }
 
-    // Parse assignedPersons (mapped from assignedPersonName in JSON)
     List<String>? persons;
     if (map['assignedPersonName'] != null) {
       if (map['assignedPersonName'] is List) {
@@ -108,6 +105,47 @@ class RequestModel {
       } else {
         persons = [map['assignedPersonName'].toString()];
       }
+    }
+
+    // Attempt to extract checking details from various potential comment fields
+    DateTime? extractedDeadline = _parseDateNullable(map['checkingDeadline']);
+    String? extractedReason = map['checkingDeadlineReason']?.toString();
+
+    // RTS systems often store approval comments in these fields
+    final List<String> commentFields = [
+      'comment', 'hodComment', 'rmComment', 'deptHodComment',
+      'rmStatusComment', 'hodStatusComment', 'deptHodStatusComment',
+      'rmApprovalComment', 'hodApprovalComment', 'deptHodApprovalComment',
+      'statusComment', 'approvalComment', 'reason'
+    ];
+
+    String? combinedStatusComment;
+    for (var field in commentFields) {
+      if (map[field] != null && map[field].toString().contains('DEADLINE:')) {
+        combinedStatusComment = map[field].toString();
+        break;
+      }
+    }
+
+    if (extractedDeadline == null && combinedStatusComment != null && combinedStatusComment.contains('DEADLINE:')) {
+      try {
+        final String deadlineStr = combinedStatusComment.split('DEADLINE:')[1].split('|')[0].trim();
+        final List<String> dateParts = deadlineStr.split('/');
+        if (dateParts.length == 3) {
+          // Modal uses MM/dd/yyyy
+          extractedDeadline = DateTime(
+            int.parse(dateParts[2]), // Year
+            int.parse(dateParts[0]), // Month
+            int.parse(dateParts[1])  // Day
+          );
+        }
+      } catch (_) {}
+    }
+    
+    if (extractedReason == null && combinedStatusComment != null && combinedStatusComment.contains('PLAN:')) {
+      try {
+        extractedReason = combinedStatusComment.split('PLAN:')[1].trim();
+      } catch (_) {}
     }
 
     return RequestModel(
@@ -131,6 +169,8 @@ class RequestModel {
       assignedDepartments: depts,
       assignedPersons: persons,
       dueDate: _parseDateNullable(map['dueDate']),
+      checkingDeadline: extractedDeadline,
+      checkingDeadlineReason: extractedReason,
       overallStatus: status,
       overallStatusDate: _parseDateNullable(map['resolvedDate']),
       isRead: map['seen'] ?? false,
@@ -144,7 +184,7 @@ class RequestModel {
   static String? _normalizeUrl(dynamic url) {
     if (url == null || url == 'null' || url == '') return null;
     String s = url.toString().trim();
-    const String serverHost = '192.168.1.128:5000'; // Match API service
+    const String serverHost = '192.168.1.128:5000'; 
     s = s.replaceAll('\\', '/');
     if (s.contains('localhost')) {
       s = s.replaceAll('localhost', '192.168.1.128');
@@ -225,6 +265,8 @@ class RequestModel {
     List<String>? assignedDepartments,
     List<String>? assignedPersons,
     DateTime? dueDate,
+    DateTime? checkingDeadline,
+    String? checkingDeadlineReason, 
     RequestStatus? overallStatus,
     DateTime? overallStatusDate,
     bool? isRead,
@@ -256,6 +298,8 @@ class RequestModel {
       assignedDepartments: assignedDepartments ?? this.assignedDepartments,
       assignedPersons: assignedPersons ?? this.assignedPersons,
       dueDate: dueDate ?? this.dueDate,
+      checkingDeadline: checkingDeadline ?? this.checkingDeadline,
+      checkingDeadlineReason: checkingDeadlineReason ?? this.checkingDeadlineReason,
       overallStatus: overallStatus ?? this.overallStatus,
       overallStatusDate: overallStatusDate ?? this.overallStatusDate,
       isRead: isRead ?? this.isRead,

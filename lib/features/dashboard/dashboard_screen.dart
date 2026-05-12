@@ -669,12 +669,26 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 }
 
-class _RequestCard extends StatelessWidget {
+class _RequestCard extends ConsumerWidget {
   final RequestModel request;
   const _RequestCard({required this.request});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final authState = ref.watch(authProvider);
+    final user = authState.user;
+
+    // Logic: If ticket is Resolved (HOD closed) and User is requestor and Ticket is unread
+    final bool isUserRequestor = user != null && (
+      user.userId.toString().trim() == request.userId.toString().trim() || 
+      user.empId.toString().trim() == request.empId.toString().trim() ||
+      user.name.trim().toLowerCase() == request.userName.trim().toLowerCase()
+    );
+
+    final bool showAwaitingText = isUserRequestor && 
+                                 request.overallStatus == RequestStatus.resolved && 
+                                 !request.isRead;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
@@ -722,6 +736,18 @@ class _RequestCard extends StatelessWidget {
                       Text(request.department, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B))),
                       Text(request.designation, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B))),
                       Text(request.location, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+                      if (showAwaitingText) ...[
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Awaiting for your response',
+                          style: TextStyle(
+                            fontSize: 12, 
+                            color: Color(0xFF5C59E8), 
+                            fontWeight: FontWeight.w900,
+                            fontStyle: FontStyle.italic
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),

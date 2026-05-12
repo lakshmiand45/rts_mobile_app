@@ -29,7 +29,7 @@ class StatusBadge extends StatelessWidget {
         text = 'Checking';
         break;
       case RequestStatus.open:
-        color = const Color(0xFF5C59E8);
+        color = const Color(0xFFD97706);
         text = 'Open';
         break;
       case RequestStatus.resolved:
@@ -37,7 +37,7 @@ class StatusBadge extends StatelessWidget {
         text = 'Resolved';
         break;
       case RequestStatus.closed:
-        color = const Color(0xFF475569); // Slate Grey for closed
+        color = const Color(0xFF10B981); // Slate Green for closed
         text = 'Closed';
         break;
     }

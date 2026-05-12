@@ -39,29 +39,29 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
   }
 
   Future<void> _loadInitialData() async {
-    await ref.read(requestProvider.notifier).fetchRequests();
+    // Specifically fetch the ticket details to ensure "checking details" are extracted
+    await ref.read(requestProvider.notifier).fetchRequestById(widget.ticketId);
+    
     ref.read(requestProvider.notifier).markAsRead(widget.ticketId);
     
-    // Also fetch chat messages to sync the unread count for this specific ticket
+    // Also fetch chat messages to sync the unread count
     await ref.read(requestProvider.notifier).fetchChatMessages(widget.ticketId);
     
     final paginatedState = ref.read(requestProvider);
     final requests = paginatedState.requests;
     
-    if (requests.isNotEmpty) {
-      final currentTicket = requests.firstWhere(
-        (r) => r.id == widget.ticketId || r.slNo == widget.ticketId,
-        orElse: () => requests.first,
-      );
+    final currentTicket = requests.firstWhere(
+      (r) => r.id == widget.ticketId || r.slNo == widget.ticketId,
+      orElse: () => requests.isNotEmpty ? requests.first : RequestModel.fromMap({'id': widget.ticketId}),
+    );
 
-      if (mounted) {
-        setState(() {
-          final String? ticketDept = currentTicket.assignedDepartment;
-          if (departments.contains(ticketDept)) {
-            selectedDept = ticketDept;
-          }
-        });
-      }
+    if (mounted) {
+      setState(() {
+        final String? ticketDept = currentTicket.assignedDepartment;
+        if (departments.contains(ticketDept)) {
+          selectedDept = ticketDept;
+        }
+      });
     }
   }
 
@@ -72,7 +72,6 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
   }
 
   void _showChatBottomSheet() {
-    // Mark chat as read locally when opening the bottom sheet
     ref.read(requestProvider.notifier).markChatAsRead(widget.ticketId);
     
     showModalBottomSheet(
@@ -95,7 +94,6 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
       orElse: () => requests.first
     );
 
-    // Robust identity check for the requestor
     final bool isUserRequestor = user != null && (
       user.userId.toString().trim() == currentTicket.userId.toString().trim() || 
       user.empId.toString().trim() == currentTicket.empId.toString().trim() ||
@@ -106,25 +104,13 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
     String message = 'Status updated successfully';
 
     if (isUserRequestor && (status == RequestStatus.closed || status == RequestStatus.pending)) {
-      // Requestors confirming "Received" or "Not Received"
-      // Based on Bruno screenshot, the correct endpoint is /acknowledge
       final String acknowledgeStatus = (status == RequestStatus.closed) ? 'Received' : 'Not Received';
-      
-      success = await ref.read(requestProvider.notifier).acknowledgeRequest(
-        currentTicket.id, 
-        acknowledgeStatus,
-      );
-      
+      success = await ref.read(requestProvider.notifier).acknowledgeRequest(currentTicket.id, acknowledgeStatus);
       message = (status == RequestStatus.closed) ? 'Ticket confirmed and closed' : 'Reported as not received';
     } else if (status == RequestStatus.closed) {
-      // Admin/HOD closing the ticket directly
-      success = await ref.read(requestProvider.notifier).closeTicket(
-        currentTicket.id, 
-        resolutionNote ?? 'Ticket closed by department.',
-      );
+      success = await ref.read(requestProvider.notifier).closeTicket(currentTicket.id, resolutionNote ?? 'Ticket closed by department.');
       message = 'Ticket closed successfully';
     } else {
-      // Normal admin status updates (Approve, Reject, Checking)
       success = await ref.read(requestProvider.notifier).updateStatus(
         currentTicket.id, 
         status, 
@@ -138,7 +124,6 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
     }
 
     if (success) {
-      // CRITICAL: We must AWAIT the data reload to ensure the UI reflects the change
       await _loadInitialData(); 
       if (mounted) {
         _commentController.clear();
@@ -146,12 +131,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
       }
     } else {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Action failed. Please check if you have permission.'), 
-            backgroundColor: Colors.red
-          )
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Action failed. Please check if you have permission.'), backgroundColor: Colors.red));
       }
     }
   }
@@ -240,14 +220,22 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
     final paginatedState = ref.watch(requestProvider);
     final requests = paginatedState.requests;
     
-    if (requests.isEmpty) {
+    // Find the specific ticket safely
+    RequestModel? currentTicket;
+    try {
+      currentTicket = requests.firstWhere((r) => r.id == widget.ticketId || r.slNo == widget.ticketId);
+    } catch (_) {
+      // If not found in list, and not currently loading, we might have an issue
+      if (!paginatedState.isLoading && requests.isNotEmpty) {
+         // Fallback to first if list is loaded but ticket id mismatch (unlikely)
+         currentTicket = requests.first;
+      }
+    }
+    
+    if (currentTicket == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     
-    final currentTicket = requests.firstWhere(
-      (r) => r.id == widget.ticketId || r.slNo == widget.ticketId, 
-      orElse: () => requests.first
-    );
     final authState = ref.watch(authProvider);
     final user = authState.user;
     
@@ -256,7 +244,6 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
     final bool isClosed = currentTicket.overallStatus == RequestStatus.closed;
     final bool isResolved = currentTicket.overallStatus == RequestStatus.resolved;
     
-    // Ultra-robust identity check for the requestor
     final bool isUserRequestor = user != null && (
       user.userId.toString().trim() == currentTicket.userId.toString().trim() || 
       user.empId.toString().trim() == currentTicket.empId.toString().trim() ||
@@ -269,7 +256,6 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
     final bool isForwarding = selectedDept != null && selectedDept != currentTicket.assignedDepartment;
     final bool canCloseTicket = (role == 'DEPTHOD' || role == 'ADMIN') && !isClosed && !isResolved;
     
-    // Show buttons if user is requestor AND ticket isn't fully Closed AND Assigned HOD has acted
     final bool showRequestorActions = isUserRequestor && !isClosed && 
         (isResolved || 
          (currentTicket.assignedHodStatus != RequestStatus.pending && 
@@ -302,7 +288,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
                   children: [
                     Container(
                       decoration: BoxDecoration(
-                        color: const Color(0xFF5C59E8).withOpacity(0.1),
+                        color: const Color(0xFF5C59E8).withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: IconButton(
@@ -401,7 +387,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
             
             InkWell(
               onTap: (currentTicket.attachedFileName != null) 
-                ? () => _previewDocument(currentTicket)
+                ? () => _previewDocument(currentTicket!)
                 : null,
               child: Container(
                 width: double.infinity,
@@ -456,31 +442,36 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
             
             if (currentTicket.dueDate != null) ...[
               const SizedBox(height: 24),
-              Builder(
-                builder: (context) {
+              LayoutBuilder(
+                builder: (context, constraints) {
                   final now = DateTime.now();
-                  final dueDate = currentTicket.dueDate!;
-                  final daysLeft = dueDate.difference(DateTime(now.year, now.month, now.day)).inDays;
+                  final today = DateTime(now.year, now.month, now.day);
+                  final dueDate = currentTicket!.dueDate!;
+
+                  final int requestorDaysLeft = dueDate.difference(today).inDays;
+                  final bool isOverdue = requestorDaysLeft < 0;
+
+                  int colorDays = requestorDaysLeft < 0 ? 0 : requestorDaysLeft;
                   
                   Color bgColor;
                   Color textColor;
                   Color badgeColor;
                   String urgencyText;
 
-                  if (daysLeft < 7) {
-                    bgColor = const Color(0xFFFEF2F2); // Light Red
-                    textColor = const Color(0xFF991B1B); // Dark Red
-                    badgeColor = const Color(0xFFEF4444); // Red
+                  if (colorDays < 7) {
+                    bgColor = const Color(0xFFFEF2F2); 
+                    textColor = const Color(0xFF991B1B); 
+                    badgeColor = const Color(0xFFEF4444); 
                     urgencyText = 'High Urgency';
-                  } else if (daysLeft <= 15) {
-                    bgColor = const Color(0xFFFFF7ED); // Light Orange
-                    textColor = const Color(0xFF9A3412); // Dark Orange
-                    badgeColor = const Color(0xFFF97316); // Orange
+                  } else if (colorDays <= 15) {
+                    bgColor = const Color(0xFFFFF7ED); 
+                    textColor = const Color(0xFF9A3412); 
+                    badgeColor = const Color(0xFFF97316); 
                     urgencyText = 'Medium Urgency';
                   } else {
-                    bgColor = const Color(0xFFF0FDF4); // Light Green
-                    textColor = const Color(0xFF166534); // Dark Green
-                    badgeColor = const Color(0xFF10B981); // Green
+                    bgColor = const Color(0xFFF0FDF4); 
+                    textColor = const Color(0xFF166534); 
+                    badgeColor = const Color(0xFF10B981); 
                     urgencyText = 'Low Urgency';
                   }
 
@@ -499,12 +490,12 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
+                              const Text(
                                 'DUE DATE',
                                 style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.bold,
-                                  color: textColor.withOpacity(0.7),
+                                  color: Colors.grey,
                                 ),
                               ),
                               const SizedBox(height: 4),
@@ -536,9 +527,9 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
                                 ),
                               ),
                               Text(
-                                '$daysLeft days left',
+                                isOverdue ? 'Overdue' : '$requestorDaysLeft days left',
                                 style: TextStyle(
-                                  color: Colors.white.withOpacity(0.9),
+                                  color: Colors.white.withValues(alpha: 0.9),
                                   fontSize: 8,
                                 ),
                               ),
@@ -549,6 +540,83 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
                     ),
                   );
                 },
+              ),
+            ],
+
+            if (currentTicket.checkingDeadline != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFFBEB),
+                  border: Border.all(color: const Color(0xFFFEF3C7)),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.access_time, color: Color(0xFFF59E0B), size: 20),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'CHECKING DEADLINE',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFFB45309),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            DateFormat('d/M/yyyy').format(currentTicket.checkingDeadline!),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF92400E),
+                            ),
+                          ),
+                          if (currentTicket.checkingDeadlineReason != null && currentTicket.checkingDeadlineReason!.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                currentTicket.checkingDeadlineReason!,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFF92400E),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF59E0B),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                        child: Text(
+                          (() {
+                            final now = DateTime.now();
+                            final today = DateTime(now.year, now.month, now.day);
+                            final int diff = currentTicket!.checkingDeadline!.difference(today).inDays;
+                            return diff <= 0 ? 'Due' : '${diff}d left';
+                          })(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
 
@@ -899,7 +967,7 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
                             style: TextStyle(
                               fontSize: 11, 
                               fontWeight: FontWeight.w600,
-                              color: isMe ? Colors.white.withOpacity(0.9) : Colors.black87
+                              color: isMe ? Colors.white.withValues(alpha: 0.9) : Colors.black87
                             ),
                           ),
                         ],
@@ -917,7 +985,7 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
                             margin: const EdgeInsets.only(top: 8),
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: Colors.white.withAlpha(40),
+                              color: Colors.white.withValues(alpha: 40),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Row(
