@@ -196,7 +196,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         controller: _searchController,
                         onChanged: _onSearchChanged,
                         decoration: const InputDecoration(
-                          hintText: 'Search....',
+                          hintText: 'Search by name....',
                           hintStyle: TextStyle(color: Color(0xFF94A3B8)),
                           suffixIcon: Icon(Icons.search, color: Color(0xFF94A3B8)),
                           border: InputBorder.none,

@@ -86,8 +86,22 @@ class RequestModel {
       status = RequestStatus.resolved;
     }
 
-    final dynamic rawUrl = map['fileUrl'] ?? map['filePath'];
-    String? fileName = map['fileName'];
+    // Extraction for Resolution details based on Bruno response
+    String? resNote;
+    dynamic rawUrl;
+    String? fileName;
+
+    if (map['closeData'] is Map) {
+      final closeData = map['closeData'] as Map<String, dynamic>;
+      resNote = closeData['description']?.toString() ?? closeData['resolutionNote']?.toString();
+      rawUrl = closeData['fileUrl'] ?? closeData['filePath'];
+     fileName = closeData['fileName'];
+    }
+
+    // Fallbacks(comment )
+    //resNote ??= map['resolutionNote']?.toString() ?? map['resolution_note']?.toString() ?? map['closing_note']?.toString();
+    //rawUrl ??= map['fileUrl'] ?? map['filePath'];
+    //fileName ??= map['fileName'];
 
     List<String>? depts;
     if (map['assignedDept'] != null) {
@@ -107,46 +121,34 @@ class RequestModel {
       }
     }
 
-    // Attempt to extract checking details from various potential comment fields
-    DateTime? extractedDeadline = _parseDateNullable(map['checkingDeadline']);
-    String? extractedReason = map['checkingDeadlineReason']?.toString();
+    // Checking Details
+    DateTime? extractedDeadline = _parseDateNullable(map['checkingDeadline'] ?? map['checking_deadline']);
+    String? extractedReason = (map['checkingDeadlineReason'] ?? map['checking_deadline_reason'])?.toString();
 
-    // RTS systems often store approval comments in these fields
-    final List<String> commentFields = [
-      'comment', 'hodComment', 'rmComment', 'deptHodComment',
-      'rmStatusComment', 'hodStatusComment', 'deptHodStatusComment',
-      'rmApprovalComment', 'hodApprovalComment', 'deptHodApprovalComment',
-      'statusComment', 'approvalComment', 'reason'
-    ];
-
-    String? combinedStatusComment;
-    for (var field in commentFields) {
-      if (map[field] != null && map[field].toString().contains('DEADLINE:')) {
-        combinedStatusComment = map[field].toString();
-        break;
+    // Deep Search for missed details
+    void deepSearch(dynamic data) {
+      if (data is Map) {
+        for (var entry in data.entries) {
+          final val = entry.value;
+          if (val is String && val.contains('DEADLINE:')) {
+            try {
+              final String deadlinePart = val.split('DEADLINE:')[1].split('|')[0].trim();
+              final List<String> dateParts = deadlinePart.split('/');
+              if (dateParts.length == 3) {
+                extractedDeadline ??= DateTime(int.parse(dateParts[2]), int.parse(dateParts[0]), int.parse(dateParts[1]));
+              }
+            } catch (_) {}
+            if (val.contains('PLAN:')) {
+              extractedReason ??= val.split('PLAN:')[1].trim();
+            }
+          }
+          if (val is Map || val is List) deepSearch(val);
+        }
+      } else if (data is List) {
+        for (var item in data) deepSearch(item);
       }
     }
-
-    if (extractedDeadline == null && combinedStatusComment != null && combinedStatusComment.contains('DEADLINE:')) {
-      try {
-        final String deadlineStr = combinedStatusComment.split('DEADLINE:')[1].split('|')[0].trim();
-        final List<String> dateParts = deadlineStr.split('/');
-        if (dateParts.length == 3) {
-          // Modal uses MM/dd/yyyy
-          extractedDeadline = DateTime(
-            int.parse(dateParts[2]), // Year
-            int.parse(dateParts[0]), // Month
-            int.parse(dateParts[1])  // Day
-          );
-        }
-      } catch (_) {}
-    }
-    
-    if (extractedReason == null && combinedStatusComment != null && combinedStatusComment.contains('PLAN:')) {
-      try {
-        extractedReason = combinedStatusComment.split('PLAN:')[1].trim();
-      } catch (_) {}
-    }
+    deepSearch(map);
 
     return RequestModel(
       id: map['id']?.toString() ?? '',
@@ -177,7 +179,7 @@ class RequestModel {
       unreadChatCount: 0,
       attachedFileName: fileName,
       attachedFileUrl: _normalizeUrl(rawUrl),
-      resolutionNote: map['closeData']?['resolutionNote'],
+      resolutionNote: resNote,
     );
   }
 

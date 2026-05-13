@@ -220,14 +220,11 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
     final paginatedState = ref.watch(requestProvider);
     final requests = paginatedState.requests;
     
-    // Find the specific ticket safely
     RequestModel? currentTicket;
     try {
       currentTicket = requests.firstWhere((r) => r.id == widget.ticketId || r.slNo == widget.ticketId);
     } catch (_) {
-      // If not found in list, and not currently loading, we might have an issue
       if (!paginatedState.isLoading && requests.isNotEmpty) {
-         // Fallback to first if list is loaded but ticket id mismatch (unlikely)
          currentTicket = requests.first;
       }
     }
@@ -912,7 +909,8 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
     final user = authState.user;
     final bool isMe = chat.senderId == user?.userId;
     
-    final bool isClosureMessage = chat.text?.toLowerCase().contains('ticket closed') ?? false;
+    final bool isClosureMessage = chat.text?.toLowerCase().contains('ticket closed') == true ||
+                                 chat.text?.toLowerCase().contains('resolution submitted') == true;
 
     String initials = '??';
     if (chat.senderName.trim().isNotEmpty) {
@@ -960,24 +958,24 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
                           chat.text!,
                           style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isMe ? Colors.white : Colors.black),
                         ),
-                        if (ticket.resolutionNote != null && ticket.resolutionNote!.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            'Resolution: ${ticket.resolutionNote}',
-                            style: TextStyle(
-                              fontSize: 11, 
-                              fontWeight: FontWeight.w600,
-                              color: isMe ? Colors.white.withValues(alpha: 0.9) : Colors.black87
-                            ),
-                          ),
-                        ],
+                        // if (ticket.resolutionNote != null && ticket.resolutionNote!.isNotEmpty) ...[
+                        //   const SizedBox(height: 8),
+                        //   Text(
+                        //     'Resolution: ${ticket.resolutionNote}',
+                        //     style: TextStyle(
+                        //       fontSize: 11,
+                        //       fontWeight: FontWeight.w600,
+                        //       color: isMe ? Colors.white.withValues(alpha: 0.9) : Colors.black87
+                        //     ),
+                        //   ),
+                        // ],
+
                       ] else if (chat.text != null && chat.text!.isNotEmpty) ...[
                         Text(
-                          chat.text!, 
+                          chat.text!,
                           style: TextStyle(fontSize: 12, color: isMe ? Colors.white : Colors.black)
-                        ),
-                      ],
-                      
+                        ),                      ],
+
                       if (chat.fileUrl != null || (isClosureMessage && ticket.attachedFileUrl != null))
                         InkWell(
                           onTap: () => _previewChatAttachment(chat),
@@ -997,7 +995,7 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
                                   child: Text(
                                     chat.fileName ?? ticket.attachedFileName ?? 'Attachment',
                                     style: TextStyle(
-                                      fontSize: 11, 
+                                      fontSize: 11,
                                       color: isMe ? Colors.white : const Color(0xFF5C59E8),
                                       decoration: TextDecoration.underline
                                     ),

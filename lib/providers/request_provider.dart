@@ -589,14 +589,15 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
     }
   }
 
-  Future<bool> closeTicket(String ticketId, String resolutionNote, {String? filePath, Uint8List? fileBytes, String? fileName}) async {
+  Future<bool> closeTicket(String ticketId, String note, {String? filePath, Uint8List? fileBytes, String? fileName}) async {
     try {
       http.Response response;
       if (filePath != null || fileBytes != null) {
-        final streamedResponse = await _apiService.patchMultipart('/requests/$ticketId/close', {'resolutionNote': resolutionNote}, filePath: filePath, fileBytes: fileBytes, fileName: fileName, fileKey: 'file');
+        final streamedResponse = await _apiService.patchMultipart('/requests/$ticketId/close', {'note': note}, filePath: filePath, fileBytes: fileBytes, fileName: fileName, fileKey: 'file');
         response = await http.Response.fromStream(streamedResponse);
-      } else {
-        response = await _apiService.patch('/requests/$ticketId/close', {'resolutionNote': resolutionNote});
+      }
+      else {
+        response = await _apiService.patch('/requests/$ticketId/close', {'note': note});
       }
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final dynamic decoded = json.decode(response.body);
