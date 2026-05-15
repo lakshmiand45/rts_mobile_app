@@ -5,6 +5,14 @@ import 'package:http_parser/http_parser.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
 
+class FileData {
+  final String? path;
+  final Uint8List? bytes;
+  final String name;
+
+  FileData({this.path, this.bytes, required this.name});
+}
+
 class ApiService {
   final String baseUrl = 'http://192.168.1.128:5000/api';
   String? _token;
@@ -65,69 +73,96 @@ class ApiService {
   }
 
   Future<http.StreamedResponse> postMultipart(
-    String endpoint, 
-    Map<String, String> fields, {
-    String? filePath, 
-    Uint8List? fileBytes, 
-    String? fileName, 
-    String fileKey = 'file',
-  }) async {
+      String endpoint,
+      Map<String, String> fields, {
+        String? filePath,
+        Uint8List? fileBytes,
+        String? fileName,
+        List<FileData>? files,
+        String fileKey = 'files',
+      }) async {
     return _multipartRequest(
-      'POST', 
-      endpoint, 
-      fields, 
-      filePath: filePath, 
-      fileBytes: fileBytes, 
-      fileName: fileName, 
+      'POST',
+      endpoint,
+      fields,
+      filePath: filePath,
+      fileBytes: fileBytes,
+      fileName: fileName,
+      files: files,
       fileKey: fileKey,
     );
   }
 
   Future<http.StreamedResponse> patchMultipart(
-    String endpoint, 
-    Map<String, String> fields, {
-    String? filePath, 
-    Uint8List? fileBytes, 
-    String? fileName, 
-    String fileKey = 'file',
-  }) async {
+      String endpoint,
+      Map<String, String> fields, {
+        String? filePath,
+        Uint8List? fileBytes,
+        String? fileName,
+        List<FileData>? files,
+        String fileKey = 'file',
+      }) async {
     return _multipartRequest(
-      'PATCH', 
-      endpoint, 
-      fields, 
-      filePath: filePath, 
-      fileBytes: fileBytes, 
-      fileName: fileName, 
+      'PATCH',
+      endpoint,
+      fields,
+      filePath: filePath,
+      fileBytes: fileBytes,
+      fileName: fileName,
+      files: files,
       fileKey: fileKey,
     );
   }
 
   Future<http.StreamedResponse> _multipartRequest(
-    String method, 
-    String endpoint, 
-    Map<String, String> fields, {
-    String? filePath, 
-    Uint8List? fileBytes, 
-    String? fileName, 
-    required String fileKey,
-  }) async {
+      String method,
+      String endpoint,
+      Map<String, String> fields, {
+        String? filePath,
+        Uint8List? fileBytes,
+        String? fileName,
+        List<FileData>? files,
+        required String fileKey,
+      }) async {
     try {
       final url = Uri.parse('$baseUrl$endpoint');
       var request = http.MultipartRequest(method, url);
-      
+
       request.headers.addAll({
         if (_token != null) 'Authorization': 'Bearer $_token',
         'Accept': 'application/json',
       });
-      
+
       request.fields.addAll(fields);
 
-      if (fileBytes != null && fileName != null) {
+      if (files != null && files.isNotEmpty) {
+        for (var file in files) {
+          if (file.bytes != null) {
+            final sanitizedName = _sanitizeFileName(file.name);
+            final contentType = _getMediaType(sanitizedName);
+            request.files.add(http.MultipartFile.fromBytes(
+              fileKey,
+              file.bytes!,
+              filename: sanitizedName,
+              contentType: contentType,
+            ));
+          } else if (file.path != null) {
+            final sanitizedName = _sanitizeFileName(file.name);
+            final contentType = _getMediaType(sanitizedName);
+            request.files.add(await http.MultipartFile.fromPath(
+              fileKey,
+              file.path!,
+              filename: sanitizedName,
+              contentType: contentType,
+            ));
+          }
+        }
+      } else if (fileBytes != null && fileName != null) {
         final sanitizedName = _sanitizeFileName(fileName);
         final contentType = _getMediaType(sanitizedName);
         request.files.add(http.MultipartFile.fromBytes(
-          fileKey, 
-          fileBytes, 
+          fileKey,
+          fileBytes,
           filename: sanitizedName,
           contentType: contentType,
         ));
@@ -136,7 +171,7 @@ class ApiService {
         final sanitizedName = _sanitizeFileName(originalName);
         final contentType = _getMediaType(sanitizedName);
         request.files.add(await http.MultipartFile.fromPath(
-          fileKey, 
+          fileKey,
           filePath,
           filename: sanitizedName,
           contentType: contentType,

@@ -10,7 +10,7 @@ class RequestModel {
   final String userId;
   final String empId;
   final String userName;
-  final String department; 
+  final String department;
   final String designation;
   final String location;
   final String title;
@@ -21,20 +21,22 @@ class RequestModel {
   final DateTime? hodStatusDate;
   final RequestStatus assignedHodStatus;
   final DateTime? assignedHodStatusDate;
-  final List<String>? assignedDepartments; 
+  final List<String>? assignedDepartments;
   final List<String>? assignedPersons;
   final DateTime? dueDate;
   final DateTime? checkingDeadline;
-  final String? checkingDeadlineReason; 
+  final String? checkingDeadlineReason;
   final RequestStatus overallStatus;
   final DateTime? overallStatusDate;
   final bool isRead;
-  final int unreadChatCount; 
+  final int unreadChatCount;
   final String? attachedFilePath;
   final String? attachedFileName;
-  final String? attachedFileUrl; 
+  final String? attachedFileUrl;
   final Uint8List? attachedFileBytes;
-  final String? resolutionNote; 
+  final String? resolutionNote;
+  final List<String>? fileUrls;
+  final List<String>? fileNames;
 
   RequestModel({
     required this.id,
@@ -58,7 +60,7 @@ class RequestModel {
     this.assignedPersons,
     this.dueDate,
     this.checkingDeadline,
-    this.checkingDeadlineReason, 
+    this.checkingDeadlineReason,
     this.overallStatus = RequestStatus.open,
     this.overallStatusDate,
     this.isRead = false,
@@ -68,18 +70,20 @@ class RequestModel {
     this.attachedFileUrl,
     this.attachedFileBytes,
     this.resolutionNote,
+    this.fileUrls,
+    this.fileNames,
   });
 
-  String? get assignedDepartment => (assignedDepartments != null && assignedDepartments!.isNotEmpty) 
-      ? assignedDepartments!.join(', ') 
+  String? get assignedDepartment => (assignedDepartments != null && assignedDepartments!.isNotEmpty)
+      ? assignedDepartments!.join(', ')
       : null;
 
   factory RequestModel.fromMap(Map<String, dynamic> map) {
     String? rawStatus = map['status']?.toString() ?? map['assignedStatus']?.toString();
     RequestStatus status = _parseStatus(rawStatus);
-    
+
     bool isActuallyClosed = map['isClosed'] == true || rawStatus?.toLowerCase() == 'fully closed' || rawStatus?.toLowerCase() == 'closed and finalized';
-    
+
     if (isActuallyClosed) {
       status = RequestStatus.closed;
     } else if (rawStatus?.toLowerCase() == 'closed' || rawStatus?.toLowerCase().contains('acknowledgement') == true) {
@@ -90,18 +94,30 @@ class RequestModel {
     String? resNote;
     dynamic rawUrl;
     String? fileName;
+    List<String>? multiUrls;
+    List<String>? multiNames;
 
     if (map['closeData'] is Map) {
       final closeData = map['closeData'] as Map<String, dynamic>;
       resNote = closeData['description']?.toString() ?? closeData['resolutionNote']?.toString();
       rawUrl = closeData['fileUrl'] ?? closeData['filePath'];
-     fileName = closeData['fileName'];
+      fileName = closeData['fileName'];
+
+      if (closeData['fileUrls'] is List) {
+        multiUrls = (closeData['fileUrls'] as List).map((e) => _normalizeUrl(e) ?? '').where((e) => e.isNotEmpty).toList();
+      }
+      if (closeData['fileNames'] is List) {
+        multiNames = List<String>.from(closeData['fileNames']);
+      }
     }
 
-    // Fallbacks(comment )
-    //resNote ??= map['resolutionNote']?.toString() ?? map['resolution_note']?.toString() ?? map['closing_note']?.toString();
-    //rawUrl ??= map['fileUrl'] ?? map['filePath'];
-    //fileName ??= map['fileName'];
+    // Fallbacks
+    if (map['fileUrls'] is List) {
+      multiUrls ??= (map['fileUrls'] as List).map((e) => _normalizeUrl(e) ?? '').where((e) => e.isNotEmpty).toList();
+    }
+    if (map['fileNames'] is List) {
+      multiNames ??= List<String>.from(map['fileNames']);
+    }
 
     List<String>? depts;
     if (map['assignedDept'] != null) {
@@ -157,7 +173,7 @@ class RequestModel {
       userId: map['userId']?.toString() ?? '',
       empId: map['empId']?.toString() ?? '',
       userName: map['name']?.toString() ?? '',
-      department: map['dept']?.toString() ?? '', 
+      department: map['dept']?.toString() ?? '',
       designation: map['designation']?.toString() ?? '',
       location: map['location']?.toString() ?? '',
       title: map['purpose'] ?? '',
@@ -180,13 +196,15 @@ class RequestModel {
       attachedFileName: fileName,
       attachedFileUrl: _normalizeUrl(rawUrl),
       resolutionNote: resNote,
+      fileUrls: multiUrls,
+      fileNames: multiNames,
     );
   }
 
   static String? _normalizeUrl(dynamic url) {
     if (url == null || url == 'null' || url == '') return null;
     String s = url.toString().trim();
-    const String serverHost = '192.168.1.128:5000'; 
+    const String serverHost = '192.168.1.128:5000';
     s = s.replaceAll('\\', '/');
     if (s.contains('localhost')) {
       s = s.replaceAll('localhost', '192.168.1.128');
@@ -229,9 +247,9 @@ class RequestModel {
     if (s == 'closed') return RequestStatus.closed;
     if (s == 'resolved') return RequestStatus.resolved;
     if (s.contains('acknowledgement')) return RequestStatus.resolved;
-    
+
     return RequestStatus.values.firstWhere(
-      (e) => e.name.toLowerCase() == s,
+          (e) => e.name.toLowerCase() == s,
       orElse: () => RequestStatus.pending,
     );
   }
@@ -268,7 +286,7 @@ class RequestModel {
     List<String>? assignedPersons,
     DateTime? dueDate,
     DateTime? checkingDeadline,
-    String? checkingDeadlineReason, 
+    String? checkingDeadlineReason,
     RequestStatus? overallStatus,
     DateTime? overallStatusDate,
     bool? isRead,
@@ -278,6 +296,8 @@ class RequestModel {
     String? attachedFileUrl,
     Uint8List? attachedFileBytes,
     String? resolutionNote,
+    List<String>? fileUrls,
+    List<String>? fileNames,
   }) {
     return RequestModel(
       id: id ?? this.id,
@@ -311,6 +331,8 @@ class RequestModel {
       attachedFileUrl: attachedFileUrl ?? this.attachedFileUrl,
       attachedFileBytes: attachedFileBytes ?? this.attachedFileBytes,
       resolutionNote: resolutionNote ?? this.resolutionNote,
+      fileUrls: fileUrls ?? this.fileUrls,
+      fileNames: fileNames ?? this.fileNames,
     );
   }
 }

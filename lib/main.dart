@@ -12,7 +12,7 @@ import 'providers/food_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   runApp(
     const ProviderScope(
       child: RTSApp(),
@@ -143,7 +143,7 @@ class RoleBaseWrapper extends ConsumerWidget {
       }
 
       final foodState = ref.watch(foodProvider);
-      
+
       if (!foodState.isInitialized) {
         return const Scaffold(
           body: Center(child: CircularProgressIndicator()),

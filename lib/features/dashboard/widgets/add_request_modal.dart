@@ -18,15 +18,15 @@ class AddRequestModal extends ConsumerStatefulWidget {
 class _AddRequestModalState extends ConsumerState<AddRequestModal> {
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _descController = TextEditingController();
-  
+
   String? selectedDepartment;
   DateTime? selectedDueDate;
-  PlatformFile? pickedFile;
+  List<PlatformFile> pickedFiles = [];
 
   final List<String> _departments = [
     'Academic', 'Admin', 'Animation', 'Broadcasting',
     'Business Development', 'Corporate Communications', 'Documantation', 'Govt.Relations',
-    'HR', 'Management', 'Marketing', 'Operation', 'Purchase', 'Software', 'Store', 
+    'HR', 'Management', 'Marketing', 'Operation', 'Purchase', 'Software', 'Store',
     'System admin', 'Technical Support'
   ];
 
@@ -37,7 +37,7 @@ class _AddRequestModalState extends ConsumerState<AddRequestModal> {
     final today = DateTime(now.year, now.month, now.day);
     final selected = DateTime(selectedDueDate!.year, selectedDueDate!.month, selectedDueDate!.day);
     final difference = selected.difference(today).inDays;
-    
+
     if (difference <= 7) return 'High';
     if (difference <= 15) return 'Medium';
     return 'Low';
@@ -63,13 +63,24 @@ class _AddRequestModalState extends ConsumerState<AddRequestModal> {
 
   Future<void> _pickFile() async {
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(withData: true);
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        withData: true,
+        allowMultiple: true,
+      );
       if (result != null) {
-        setState(() => pickedFile = result.files.first);
+        setState(() {
+          pickedFiles.addAll(result.files);
+        });
       }
     } catch (e) {
       debugPrint('Error picking file: $e');
     }
+  }
+
+  void _removeFile(int index) {
+    setState(() {
+      pickedFiles.removeAt(index);
+    });
   }
 
   Future<void> _selectDate(BuildContext context) async {
@@ -139,7 +150,7 @@ class _AddRequestModalState extends ConsumerState<AddRequestModal> {
       final authState = ref.read(authProvider);
       final user = authState.user;
       final paginatedState = ref.read(requestProvider);
-      
+
       final newRequest = RequestModel(
         slNo: (paginatedState.totalItems + 1).toString(),
         id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -147,7 +158,7 @@ class _AddRequestModalState extends ConsumerState<AddRequestModal> {
         userId: user?.userId ?? 'Unknown ID',
         empId: user?.empId ?? 'Unknown',
         userName: user?.name ?? 'Anonymous',
-        department: user?.department ?? 'Unknown', 
+        department: user?.department ?? 'Unknown',
         designation: user?.designation ?? 'Staff',
         location: user?.location ?? 'Remote',
         title: _titleController.text,
@@ -157,13 +168,13 @@ class _AddRequestModalState extends ConsumerState<AddRequestModal> {
         assignedPersons: [],
         dueDate: selectedDueDate,
         overallStatus: RequestStatus.pending,
-        attachedFilePath: kIsWeb ? null : pickedFile?.path,
-        attachedFileName: pickedFile?.name,
-        attachedFileBytes: pickedFile?.bytes,
       );
 
-      final success = await ref.read(requestProvider.notifier).addRequest(newRequest);
-      
+      final success = await ref.read(requestProvider.notifier).addRequest(
+        newRequest,
+        multiFiles: pickedFiles,
+      );
+
       if (mounted) {
         if (success) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -306,7 +317,7 @@ class _AddRequestModalState extends ConsumerState<AddRequestModal> {
                   ),
                 ),
               ),
-              
+
               // Priority Display
               if (selectedDueDate != null) ...[
                 const SizedBox(height: 12),
@@ -347,7 +358,7 @@ class _AddRequestModalState extends ConsumerState<AddRequestModal> {
               const SizedBox(height: 16),
 
               // File Upload
-              const Text('ATTACH FILE (OPTIONAL)', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+              const Text('ATTACH FILES (OPTIONAL)', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
               const SizedBox(height: 8),
               DottedBorder(
                 color: const Color(0xFFE2E8F0),
@@ -363,20 +374,58 @@ class _AddRequestModalState extends ConsumerState<AddRequestModal> {
                     child: Column(
                       children: [
                         Icon(
-                          pickedFile != null ? Icons.insert_drive_file : Icons.upload_outlined,
-                          color: pickedFile != null ? const Color(0xFF5C59E8) : Colors.grey[400],
+                          Icons.upload_outlined,
+                          color: Colors.grey[400],
                           size: 28,
                         ),
                         const SizedBox(height: 8),
-                        Text(
-                          pickedFile != null ? pickedFile!.name : 'CLICK TO UPLOAD FILE',
-                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey),
+                        const Text(
+                          'CLICK TO UPLOAD FILES',
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey),
                         ),
                       ],
                     ),
                   ),
                 ),
               ),
+              if (pickedFiles.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: pickedFiles.length,
+                  separatorBuilder: (context, index) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final file = pickedFiles[index];
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.insert_drive_file, size: 16, color: Color(0xFF5C59E8)),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              file.name,
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => _removeFile(index),
+                            icon: const Icon(Icons.close, size: 16, color: Colors.red),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ],
               const SizedBox(height: 24),
 
               // Buttons

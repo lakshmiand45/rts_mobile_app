@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart';
+import 'package:file_picker/file_picker.dart';
 import '../models/request_model.dart';
 import '../models/chat_model.dart';
 import '../core/services/api_service.dart';
@@ -17,7 +18,7 @@ class PaginatedRequestState {
   final bool hasNext;
   final bool hasPrev;
   final bool isLoading;
-  
+
   final List<String> filterNames;
   final List<String> filterDepts;
   final List<String> filterAssignedDepts;
@@ -74,7 +75,7 @@ class PaginatedRequestState {
   }) {
     final nextCurrentPage = currentPage ?? this.currentPage;
     final nextTotalPages = totalPages ?? this.totalPages;
-    
+
     return PaginatedRequestState(
       requests: requests ?? this.requests,
       currentPage: nextCurrentPage,
@@ -88,7 +89,7 @@ class PaginatedRequestState {
       filterAssignedDepts: filterAssignedDepts ?? this.filterAssignedDepts,
       filterStatuses: filterStatuses ?? this.filterStatuses,
       scope: scope ?? this.scope,
-      selectedName: selectedName ?? this.selectedName, 
+      selectedName: selectedName ?? this.selectedName,
       selectedDept: selectedDept ?? this.selectedDept,
       selectedAssignedDept: selectedAssignedDept ?? this.selectedAssignedDept,
       selectedStatuses: selectedStatuses ?? this.selectedStatuses,
@@ -96,7 +97,7 @@ class PaginatedRequestState {
       search: search ?? this.search,
     );
   }
-  
+
   PaginatedRequestState clearFilter({
     bool name = false,
     bool dept = false,
@@ -160,7 +161,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
     if (resetName || clearDept || resetAssignedDept || clearDate || clearStatus) {
       state = state.clearFilter(name: resetName, dept: clearDept, assignedDept: resetAssignedDept, date: clearDate, status: clearStatus);
     }
-    
+
     state = state.copyWith(
       scope: scope,
       selectedName: name,
@@ -233,13 +234,13 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
       }
 
       if (state.selectedName != null && state.scope != 'sent') {
-         queryParams['name'] = state.selectedName!;
+        queryParams['name'] = state.selectedName!;
       }
       if (state.selectedDept != null) queryParams['dept'] = state.selectedDept!;
       if (state.selectedAssignedDept != null && state.scope != 'received') {
         queryParams['assignedDept'] = state.selectedAssignedDept!;
       }
-      
+
       if (state.selectedStatuses.isNotEmpty) queryParams['status'] = state.selectedStatuses.join(',');
       if (state.selectedDate != null) queryParams['date'] = state.selectedDate!;
       if (state.search.isNotEmpty) queryParams['search'] = state.search;
@@ -247,7 +248,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
       final queryString = Uri(queryParameters: queryParams).query;
       final response = await _apiService.get('/requests?$queryString');
       final dynamic decodedData = json.decode(response.body);
-      
+
       List<dynamic> listData = [];
       int totalItems = 0;
       int totalPages = 1;
@@ -260,16 +261,16 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
           totalPages = p['totalPages'] ?? 1;
         }
       }
-      
+
       final mappedRequests = listData.map((json) => RequestModel.fromMap(json as Map<String, dynamic>)).toList();
-      
+
       state = state.copyWith(
         requests: mappedRequests,
         totalPages: totalPages,
         totalItems: totalItems,
         isLoading: false,
       );
-      
+
       _sortRequests();
       _checkAllUnreadStatus();
     } catch (e) {
@@ -285,7 +286,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
         final dynamic decoded = json.decode(response.body);
         final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
         final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
-        
+
         bool found = false;
         final newList = state.requests.map((req) {
           if (req.id == updatedReq.id || req.slNo == updatedReq.slNo) {
@@ -297,11 +298,11 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
           }
           return req;
         }).toList();
-        
+
         if (!found) {
           newList.add(updatedReq);
         }
-        
+
         state = state.copyWith(requests: newList);
         _sortRequests();
       }
@@ -315,16 +316,16 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
     try {
       final response = await _apiService.get('/requests/hod-pending');
       final dynamic decodedData = json.decode(response.body);
-      
+
       List<dynamic> listData = [];
       if (decodedData is List) {
         listData = decodedData;
       } else if (decodedData is Map) {
         listData = decodedData['requests'] ?? decodedData['data'] ?? [];
       }
-      
+
       final mappedRequests = listData.map((json) => RequestModel.fromMap(json as Map<String, dynamic>)).toList();
-      
+
       state = state.copyWith(
         requests: mappedRequests,
         isLoading: false,
@@ -400,15 +401,15 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
         final dynamic decoded = json.decode(response.body);
         final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
         final newMessage = ChatModel.fromMap(data);
-        
+
         final prefs = await SharedPreferences.getInstance();
         await prefs.setInt('$_lastMsgIdKey$ticketId', newMessage.id);
         return newMessage;
       }
       return null;
-    } catch (e) { 
+    } catch (e) {
       debugPrint('DEBUG: sendChatMessage error: $e');
-      return null; 
+      return null;
     }
   }
 
@@ -425,7 +426,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
         filePath: filePath,
         fileBytes: fileBytes,
         fileName: fileName,
-        fileKey: 'file', 
+        fileKey: 'file',
       );
 
       final response = await http.Response.fromStream(streamedResponse);
@@ -434,7 +435,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
         final dynamic decoded = json.decode(response.body);
         final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
         final newMessage = ChatModel.fromMap(data);
-        
+
         final prefs = await SharedPreferences.getInstance();
         await prefs.setInt('$_lastMsgIdKey$ticketId', newMessage.id);
         return newMessage;
@@ -445,27 +446,41 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
     return null;
   }
 
-  Future<bool> addRequest(RequestModel newRequest) async {
+  Future<bool> addRequest(RequestModel newRequest, {List<PlatformFile>? multiFiles}) async {
     try {
       http.Response response;
-      if (newRequest.attachedFileBytes != null || newRequest.attachedFilePath != null) {
-        final fields = {
-          'purpose': newRequest.title, 
-          'assignedDept': (newRequest.assignedDepartments?.length == 1) 
-              ? newRequest.assignedDepartments!.first 
-              : json.encode(newRequest.assignedDepartments),
-          'assignedPersonName': json.encode(newRequest.assignedPersons),
-          'dueDate': newRequest.dueDate?.toIso8601String() ?? '',
-          'description': newRequest.description
-        };
+      final fields = {
+        'purpose': newRequest.title,
+        'assignedDept': (newRequest.assignedDepartments?.length == 1)
+            ? newRequest.assignedDepartments!.first
+            : json.encode(newRequest.assignedDepartments),
+        'assignedPersonName': json.encode(newRequest.assignedPersons),
+        'dueDate': newRequest.dueDate?.toIso8601String() ?? '',
+        'description': newRequest.description
+      };
+
+      if (multiFiles != null && multiFiles.isNotEmpty) {
+        final List<FileData> fileDataList = multiFiles.map((f) => FileData(
+          path: kIsWeb ? null : f.path,
+          bytes: f.bytes,
+          name: f.name,
+        )).toList();
 
         final streamedResponse = await _apiService.postMultipart(
-          '/requests', 
-          fields, 
-          filePath: newRequest.attachedFilePath, 
-          fileBytes: newRequest.attachedFileBytes, 
-          fileName: newRequest.attachedFileName,
-          fileKey: 'file' 
+            '/requests',
+            fields,
+            files: fileDataList,
+            fileKey: 'files'
+        );
+        response = await http.Response.fromStream(streamedResponse);
+      } else if (newRequest.attachedFileBytes != null || newRequest.attachedFilePath != null) {
+        final streamedResponse = await _apiService.postMultipart(
+            '/requests',
+            fields,
+            filePath: newRequest.attachedFilePath,
+            fileBytes: newRequest.attachedFileBytes,
+            fileName: newRequest.attachedFileName,
+            fileKey: 'files'
         );
         response = await http.Response.fromStream(streamedResponse);
       } else {
@@ -476,7 +491,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
         final dynamic decodedBody = json.decode(response.body);
         final requestData = decodedBody is Map && decodedBody.containsKey('data') ? decodedBody['data'] : decodedBody;
         final createdRequest = RequestModel.fromMap(requestData as Map<String, dynamic>);
-        
+
         state = state.copyWith(
           requests: [createdRequest, ...state.requests],
           totalItems: state.totalItems + 1,
@@ -485,9 +500,9 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
         return true;
       }
       return false;
-    } catch (e) { 
+    } catch (e) {
       debugPrint('DEBUG: Add Request Catch Error: $e');
-      return false; 
+      return false;
     }
   }
 
@@ -518,7 +533,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
         final dynamic decoded = json.decode(response.body);
         final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
         final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
-        
+
         state = state.copyWith(requests: [
           for (final req in state.requests)
             if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req
@@ -527,9 +542,9 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
         return true;
       }
       return false;
-    } catch (e) { 
+    } catch (e) {
       debugPrint('DEBUG: updateStatus error: $e');
-      return false; 
+      return false;
     }
   }
 
@@ -548,7 +563,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
         final dynamic decoded = json.decode(response.body);
         final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
         final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
-        
+
         state = state.copyWith(requests: [
           for (final req in state.requests)
             if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req
@@ -557,9 +572,9 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
         return true;
       }
       return false;
-    } catch (e) { 
+    } catch (e) {
       debugPrint('DEBUG: updateHODManagementApproval error: $e');
-      return false; 
+      return false;
     }
   }
 
@@ -574,7 +589,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
         final dynamic decoded = json.decode(response.body);
         final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
         final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
-        
+
         state = state.copyWith(requests: [
           for (final req in state.requests)
             if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req
@@ -583,9 +598,9 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
         return true;
       }
       return false;
-    } catch (e) { 
+    } catch (e) {
       debugPrint('DEBUG: forwardRequest error: $e');
-      return false; 
+      return false;
     }
   }
 
@@ -603,15 +618,15 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
         final dynamic decoded = json.decode(response.body);
         final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
         final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
-        
+
         state = state.copyWith(requests: [for (final req in state.requests) if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req]);
         _sortRequests();
         return true;
       }
       return false;
-    } catch (e) { 
+    } catch (e) {
       debugPrint('DEBUG: closeTicket error: $e');
-      return false; 
+      return false;
     }
   }
 
@@ -625,7 +640,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
         final dynamic decoded = json.decode(response.body);
         final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
         final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
-        
+
         state = state.copyWith(requests: [
           for (final req in state.requests)
             if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req

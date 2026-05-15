@@ -27,7 +27,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   final TextEditingController _searchController = TextEditingController();
   Timer? _debounce;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  String _selectedMenuItem = 'Add Request'; 
+  String _selectedMenuItem = 'Add Request';
 
   @override
   void initState() {
@@ -63,7 +63,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     try {
       final apiService = ref.read(apiServiceProvider);
       await apiService.post('/push/trigger-reminder', {});
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -125,11 +125,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         radius: 24,
                         backgroundColor: const Color(0xFFE2E8F0),
                         child: Text(
-                          currentUser?.initials ?? '??', 
-                          style: const TextStyle(
-                            color: Color(0xFF5C59E8), 
-                            fontWeight: FontWeight.bold
-                          )
+                            currentUser?.initials ?? '??',
+                            style: const TextStyle(
+                                color: Color(0xFF5C59E8),
+                                fontWeight: FontWeight.bold
+                            )
                         ),
                       ),
                     ),
@@ -139,27 +139,27 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            currentUser?.name ?? 'User Name', 
-                            style: const TextStyle(
-                              fontSize: 14, 
-                              fontWeight: FontWeight.bold, 
-                              color: Color(0xFF1E293B)
-                            )
+                              currentUser?.name ?? 'User Name',
+                              style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF1E293B)
+                              )
                           ),
                           Text(
-                            currentUser?.department ?? 'Department', 
-                            style: const TextStyle(
-                              fontSize: 12, 
-                              fontWeight: FontWeight.w600, 
-                              color: Color(0xFF475569)
-                            )
+                              currentUser?.department ?? 'Department',
+                              style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF475569)
+                              )
                           ),
                           Text(
-                            'USER ID: ${currentUser?.empId ?? 'N/A'}', 
-                            style: const TextStyle(
-                              fontSize: 11, 
-                              color: Color(0xFF64748B)
-                            )
+                              'USER ID: ${currentUser?.empId ?? 'N/A'}',
+                              style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFF64748B)
+                              )
                           ),
                         ],
                       ),
@@ -326,8 +326,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Widget _buildEndDrawer(UserModel? currentUser) {
-    final bool canTriggerReminder = currentUser?.role == 'DeptHOD' && 
-                                  (currentUser?.department == 'HR' || currentUser?.department == 'Food Committee');
+    final bool canTriggerReminder = currentUser?.role == 'DeptHOD' &&
+        (currentUser?.department == 'HR' || currentUser?.department == 'Food Committee');
     final bool isBangalore = currentUser?.location.toLowerCase() == 'bangalore';
     final bool isManagement = currentUser?.role.toLowerCase() == 'management';
 
@@ -382,11 +382,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     icon: Icons.restaurant_menu,
                     label: 'Food Request',
                     isSelected: _selectedMenuItem == 'Food Request',
-                    iconColor: const Color(0xFFF59E0B), 
+                    iconColor: const Color(0xFFF59E0B),
                     onTap: () {
                       setState(() => _selectedMenuItem = 'Food Request');
                       Navigator.pop(context);
-                      
+
                       final foodState = ref.read(foodProvider);
                       if (!foodState.hasSeenOnboarding) {
                         Navigator.push(context, MaterialPageRoute(builder: (context) => const FoodRequestScreen()));
@@ -559,7 +559,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 20), decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(2)))),
-                    
+
                     if (!isManagement) ...[
                       _buildFilterDropdownField('Request type', _getDisplayScope(state.scope), ['Request type', 'Sent', 'Received'], (val) {
                         String newScope = 'all';
@@ -569,7 +569,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       }),
                       const SizedBox(height: 16),
                     ],
-                    
+
                     _buildFilterDropdownField('Requestor Name', state.selectedName, state.filterNames, (val) {
                       ref.read(requestProvider.notifier).updateFilters(name: val);
                     }),
@@ -584,7 +584,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       ref.read(requestProvider.notifier).updateFilters(assignedDept: val);
                     }),
                     const SizedBox(height: 16),
-                    
+
                     if (!isManagement) ...[
                       Container(
                         decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE2E8F0))),
@@ -619,7 +619,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       ),
                       const SizedBox(height: 16),
                     ],
-                    
+
                     GestureDetector(
                       onTap: () async {
                         final DateTime? picked = await showDatePicker(context: context, initialDate: DateTime.now(), firstDate: DateTime(2020), lastDate: DateTime(2030));
@@ -680,14 +680,14 @@ class _RequestCard extends ConsumerWidget {
 
     // Logic: If ticket is Resolved (HOD closed) and User is requestor and Ticket is unread
     final bool isUserRequestor = user != null && (
-      user.userId.toString().trim() == request.userId.toString().trim() || 
-      user.empId.toString().trim() == request.empId.toString().trim() ||
-      user.name.trim().toLowerCase() == request.userName.trim().toLowerCase()
+        user.userId.toString().trim() == request.userId.toString().trim() ||
+            user.empId.toString().trim() == request.empId.toString().trim() ||
+            user.name.trim().toLowerCase() == request.userName.trim().toLowerCase()
     );
 
-    final bool showAwaitingText = isUserRequestor && 
-                                 request.overallStatus == RequestStatus.resolved && 
-                                 !request.isRead;
+    final bool showAwaitingText = isUserRequestor &&
+        request.overallStatus == RequestStatus.resolved &&
+        !request.isRead;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -741,10 +741,10 @@ class _RequestCard extends ConsumerWidget {
                         const Text(
                           'Awaiting for your response',
                           style: TextStyle(
-                            fontSize: 12, 
-                            color: Color(0xFF5C59E8), 
-                            fontWeight: FontWeight.w900,
-                            fontStyle: FontStyle.italic
+                              fontSize: 12,
+                              color: Color(0xFF5C59E8),
+                              fontWeight: FontWeight.w900,
+                              fontStyle: FontStyle.italic
                           ),
                         ),
                       ],

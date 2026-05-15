@@ -39,19 +39,15 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
   }
 
   Future<void> _loadInitialData() async {
-    // Specifically fetch the ticket details to ensure "checking details" are extracted
     await ref.read(requestProvider.notifier).fetchRequestById(widget.ticketId);
-    
     ref.read(requestProvider.notifier).markAsRead(widget.ticketId);
-    
-    // Also fetch chat messages to sync the unread count
     await ref.read(requestProvider.notifier).fetchChatMessages(widget.ticketId);
-    
+
     final paginatedState = ref.read(requestProvider);
     final requests = paginatedState.requests;
-    
+
     final currentTicket = requests.firstWhere(
-      (r) => r.id == widget.ticketId || r.slNo == widget.ticketId,
+          (r) => r.id == widget.ticketId || r.slNo == widget.ticketId,
       orElse: () => requests.isNotEmpty ? requests.first : RequestModel.fromMap({'id': widget.ticketId}),
     );
 
@@ -73,7 +69,6 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
 
   void _showChatBottomSheet() {
     ref.read(requestProvider.notifier).markChatAsRead(widget.ticketId);
-    
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -86,18 +81,18 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
     final authState = ref.read(authProvider);
     final user = authState.user;
     final role = user?.role.toUpperCase();
-    
+
     final paginatedState = ref.read(requestProvider);
     final requests = paginatedState.requests;
     final currentTicket = requests.firstWhere(
-      (r) => r.id == widget.ticketId || r.slNo == widget.ticketId,
-      orElse: () => requests.first
+            (r) => r.id == widget.ticketId || r.slNo == widget.ticketId,
+        orElse: () => requests.first
     );
 
     final bool isUserRequestor = user != null && (
-      user.userId.toString().trim() == currentTicket.userId.toString().trim() || 
-      user.empId.toString().trim() == currentTicket.empId.toString().trim() ||
-      user.name.trim().toLowerCase() == currentTicket.userName.trim().toLowerCase()
+        user.userId.toString().trim() == currentTicket.userId.toString().trim() ||
+            user.empId.toString().trim() == currentTicket.empId.toString().trim() ||
+            user.name.trim().toLowerCase() == currentTicket.userName.trim().toLowerCase()
     );
 
     bool success = false;
@@ -112,19 +107,19 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
       message = 'Ticket closed successfully';
     } else {
       success = await ref.read(requestProvider.notifier).updateStatus(
-        currentTicket.id, 
-        status, 
-        comment: _commentController.text.trim(),
-        isRM: role == 'RM', 
-        isHOD: role == 'HOD',
-        isDeptHOD: role == 'DEPTHOD',
-        isAdmin: role == 'ADMIN',
-        isManagement: role == 'MANAGEMENT'
+          currentTicket.id,
+          status,
+          comment: _commentController.text.trim(),
+          isRM: role == 'RM',
+          isHOD: role == 'HOD',
+          isDeptHOD: role == 'DEPTHOD',
+          isAdmin: role == 'ADMIN',
+          isManagement: role == 'MANAGEMENT'
       );
     }
 
     if (success) {
-      await _loadInitialData(); 
+      await _loadInitialData();
       if (mounted) {
         _commentController.clear();
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
@@ -152,8 +147,11 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
     }
   }
 
-  void _previewDocument(RequestModel ticket) {
-    if (ticket.attachedFileBytes != null || ticket.attachedFilePath != null || ticket.attachedFileUrl != null) {
+  void _previewDocument(RequestModel ticket, {String? customUrl, String? customName}) {
+    final fileName = customName ?? ticket.attachedFileName ?? 'Document Preview';
+    final url = customUrl ?? ticket.attachedFileUrl;
+
+    if (ticket.attachedFileBytes != null || ticket.attachedFilePath != null || url != null) {
       showDialog(
         context: context,
         builder: (context) => Dialog(
@@ -163,7 +161,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 AppBar(
-                  title: Text(ticket.attachedFileName ?? 'Document Preview'),
+                  title: Text(fileName),
                   automaticallyImplyLeading: false,
                   actions: [
                     IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
@@ -172,7 +170,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
-                    child: _buildPreviewWidget(ticket),
+                    child: _buildPreviewWidget(ticket, customUrl: url, customName: fileName),
                   ),
                 ),
               ],
@@ -183,9 +181,9 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
     }
   }
 
-  Widget _buildPreviewWidget(RequestModel ticket) {
-    final fileName = ticket.attachedFileName?.toLowerCase() ?? '';
-    final url = ticket.attachedFileUrl;
+  Widget _buildPreviewWidget(RequestModel ticket, {String? customUrl, String? customName}) {
+    final fileName = (customName ?? ticket.attachedFileName ?? '').toLowerCase();
+    final url = customUrl ?? ticket.attachedFileUrl;
 
     if (fileName.endsWith('.jpg') || fileName.endsWith('.jpeg') || fileName.endsWith('.png') || fileName.endsWith('.gif')) {
       if (url != null && url.isNotEmpty) {
@@ -200,7 +198,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
         return Image.file(File(ticket.attachedFilePath!), fit: BoxFit.contain);
       }
     }
-    
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -209,7 +207,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
           const SizedBox(height: 16),
           Text('Preview not available for this file type.', style: TextStyle(color: Colors.grey[600])),
           const SizedBox(height: 8),
-          Text(ticket.attachedFileName ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
+          Text(customName ?? ticket.attachedFileName ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
         ],
       ),
     );
@@ -219,32 +217,31 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
   Widget build(BuildContext context) {
     final paginatedState = ref.watch(requestProvider);
     final requests = paginatedState.requests;
-    
+
     RequestModel? currentTicket;
     try {
       currentTicket = requests.firstWhere((r) => r.id == widget.ticketId || r.slNo == widget.ticketId);
     } catch (_) {
       if (!paginatedState.isLoading && requests.isNotEmpty) {
-         currentTicket = requests.first;
+        currentTicket = requests.first;
       }
     }
-    
+
     if (currentTicket == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    
+
     final authState = ref.watch(authProvider);
     final user = authState.user;
-    
     final String role = user?.role.toUpperCase() ?? '';
     final bool isAuthorizedRole = role == 'RM' || role == 'HOD' || role == 'DEPTHOD' || role == 'ADMIN' || role == 'MANAGEMENT';
     final bool isClosed = currentTicket.overallStatus == RequestStatus.closed;
     final bool isResolved = currentTicket.overallStatus == RequestStatus.resolved;
-    
+
     final bool isUserRequestor = user != null && (
-      user.userId.toString().trim() == currentTicket.userId.toString().trim() || 
-      user.empId.toString().trim() == currentTicket.empId.toString().trim() ||
-      user.name.trim().toLowerCase() == currentTicket.userName.trim().toLowerCase()
+        user.userId.toString().trim() == currentTicket.userId.toString().trim() ||
+            user.empId.toString().trim() == currentTicket.empId.toString().trim() ||
+            user.name.trim().toLowerCase() == currentTicket.userName.trim().toLowerCase()
     );
 
     final bool buttonsEnabled = isAuthorizedRole && !isClosed && !isResolved;
@@ -252,12 +249,12 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
     final bool canForward = isAuthorizedRole && !isClosed && !isResolved;
     final bool isForwarding = selectedDept != null && selectedDept != currentTicket.assignedDepartment;
     final bool canCloseTicket = (role == 'DEPTHOD' || role == 'ADMIN') && !isClosed && !isResolved;
-    
-    final bool showRequestorActions = isUserRequestor && !isClosed && 
-        (isResolved || 
-         (currentTicket.assignedHodStatus != RequestStatus.pending && 
-          currentTicket.assignedHodStatus != RequestStatus.open && 
-          currentTicket.assignedHodStatus != RequestStatus.checking));
+
+    final bool showRequestorActions = isUserRequestor && !isClosed &&
+        (isResolved ||
+            (currentTicket.assignedHodStatus != RequestStatus.pending &&
+                currentTicket.assignedHodStatus != RequestStatus.open &&
+                currentTicket.assignedHodStatus != RequestStatus.checking));
 
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
@@ -285,7 +282,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
                   children: [
                     Container(
                       decoration: BoxDecoration(
-                        color: const Color(0xFF5C59E8).withValues(alpha: 0.1),
+                        color: const Color(0xFF5C59E8).withOpacity(0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: IconButton(
@@ -350,7 +347,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      currentTicket.title, 
+                      currentTicket.title,
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                   ),
@@ -381,45 +378,12 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
             const SizedBox(height: 8),
             _buildStaticField(currentTicket.description),
             const SizedBox(height: 16),
-            
-            InkWell(
-              onTap: (currentTicket.attachedFileName != null) 
-                ? () => _previewDocument(currentTicket!)
-                : null,
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
-                  border: Border.all(color: Colors.grey.shade300),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Center(
-                  child: currentTicket.attachedFileName != null
-                    ? Row(
-                        children: [
-                          const Icon(Icons.insert_drive_file, color: Color(0xFF5C59E8), size: 20),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              currentTicket.attachedFileName!,
-                              style: const TextStyle(
-                                color: Color(0xFF5C59E8), 
-                                fontWeight: FontWeight.bold, 
-                                decoration: TextDecoration.underline,
-                                fontSize: 12,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                              maxLines: 1,
-                            ),
-                          ),
-                        ],
-                      )
-                    : const Text('No document attached', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                ),
-              ),
+
+            _AttachmentsSection(
+              ticket: currentTicket,
+              onPreview: (url, name) => _previewDocument(currentTicket!, customUrl: url, customName: name),
             ),
-            
+
             const SizedBox(height: 32),
             const Text('ADMIN ACTION', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
             const SizedBox(height: 16),
@@ -436,7 +400,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
                 ],
               ),
             ),
-            
+
             if (currentTicket.dueDate != null) ...[
               const SizedBox(height: 24),
               LayoutBuilder(
@@ -444,41 +408,23 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
                   final now = DateTime.now();
                   final today = DateTime(now.year, now.month, now.day);
                   final dueDate = currentTicket!.dueDate!;
-
                   final int requestorDaysLeft = dueDate.difference(today).inDays;
                   final bool isOverdue = requestorDaysLeft < 0;
-
                   int colorDays = requestorDaysLeft < 0 ? 0 : requestorDaysLeft;
-                  
-                  Color bgColor;
-                  Color textColor;
-                  Color badgeColor;
-                  String urgencyText;
 
+                  Color bgColor; Color textColor; Color badgeColor; String urgencyText;
                   if (colorDays < 7) {
-                    bgColor = const Color(0xFFFEF2F2); 
-                    textColor = const Color(0xFF991B1B); 
-                    badgeColor = const Color(0xFFEF4444); 
-                    urgencyText = 'High Urgency';
+                    bgColor = const Color(0xFFFEF2F2); textColor = const Color(0xFF991B1B); badgeColor = const Color(0xFFEF4444); urgencyText = 'High Urgency';
                   } else if (colorDays <= 15) {
-                    bgColor = const Color(0xFFFFF7ED); 
-                    textColor = const Color(0xFF9A3412); 
-                    badgeColor = const Color(0xFFF97316); 
-                    urgencyText = 'Medium Urgency';
+                    bgColor = const Color(0xFFFFF7ED); textColor = const Color(0xFF9A3412); badgeColor = const Color(0xFFF97316); urgencyText = 'Medium Urgency';
                   } else {
-                    bgColor = const Color(0xFFF0FDF4); 
-                    textColor = const Color(0xFF166534); 
-                    badgeColor = const Color(0xFF10B981); 
-                    urgencyText = 'Low Urgency';
+                    bgColor = const Color(0xFFF0FDF4); textColor = const Color(0xFF166534); badgeColor = const Color(0xFF10B981); urgencyText = 'Low Urgency';
                   }
 
                   return Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: bgColor,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                    decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(12)),
                     child: Row(
                       children: [
                         Icon(Icons.calendar_today_outlined, color: textColor, size: 20),
@@ -487,49 +433,19 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                'DUE DATE',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.grey,
-                                ),
-                              ),
+                              const Text('DUE DATE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
                               const SizedBox(height: 4),
-                              Text(
-                                DateFormat('dd/MM/yyyy').format(dueDate),
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                  color: textColor,
-                                ),
-                              ),
+                              Text(DateFormat('dd/MM/yyyy').format(dueDate), style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: textColor)),
                             ],
                           ),
                         ),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: badgeColor,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
+                          decoration: BoxDecoration(color: badgeColor, borderRadius: BorderRadius.circular(20)),
                           child: Column(
                             children: [
-                              Text(
-                                urgencyText,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              Text(
-                                isOverdue ? 'Overdue' : '$requestorDaysLeft days left',
-                                style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.9),
-                                  fontSize: 8,
-                                ),
-                              ),
+                              Text(urgencyText, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                              Text(isOverdue ? 'Overdue' : '$requestorDaysLeft days left', style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 8)),
                             ],
                           ),
                         ),
@@ -545,11 +461,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFFBEB),
-                  border: Border.all(color: const Color(0xFFFEF3C7)),
-                  borderRadius: BorderRadius.circular(16),
-                ),
+                decoration: BoxDecoration(color: const Color(0xFFFFFBEB), border: Border.all(color: const Color(0xFFFEF3C7)), borderRadius: BorderRadius.circular(16)),
                 child: Row(
                   children: [
                     const Icon(Icons.access_time, color: Color(0xFFF59E0B), size: 20),
@@ -558,58 +470,25 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'CHECKING DEADLINE',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFFB45309),
-                            ),
-                          ),
+                          const Text('CHECKING DEADLINE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFFB45309))),
                           const SizedBox(height: 4),
-                          Text(
-                            DateFormat('d/M/yyyy').format(currentTicket.checkingDeadline!),
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF92400E),
-                            ),
-                          ),
+                          Text(DateFormat('d/M/yyyy').format(currentTicket.checkingDeadline!), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF92400E))),
                           if (currentTicket.checkingDeadlineReason != null && currentTicket.checkingDeadlineReason!.isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: Text(
-                                currentTicket.checkingDeadlineReason!,
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Color(0xFF92400E),
-                                ),
-                              ),
-                            ),
+                            Padding(padding: const EdgeInsets.only(top: 4), child: Text(currentTicket.checkingDeadlineReason!, style: const TextStyle(fontSize: 12, color: Color(0xFF92400E)))),
                         ],
                       ),
                     ),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF59E0B),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                        child: Text(
-                          (() {
-                            final now = DateTime.now();
-                            final today = DateTime(now.year, now.month, now.day);
-                            final int diff = currentTicket!.checkingDeadline!.difference(today).inDays;
-                            return diff <= 0 ? 'Due' : '${diff}d left';
-                          })(),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                      decoration: BoxDecoration(color: const Color(0xFFF59E0B), borderRadius: BorderRadius.circular(20)),
+                      child: Text(
+                        (() {
+                          final now = DateTime.now();
+                          final today = DateTime(now.year, now.month, now.day);
+                          final int diff = currentTicket!.checkingDeadline!.difference(today).inDays;
+                          return diff <= 0 ? 'Due' : '${diff}d left';
+                        })(),
+                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
                       ),
                     ),
                   ],
@@ -619,71 +498,30 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
 
             if (showRequestorActions) ...[
               const SizedBox(height: 24),
-              const Center(
-                child: Text(
-                  'Have you received the requested items/service?',
-                  style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E293B), fontSize: 13),
-                ),
-              ),
+              const Center(child: Text('Have you received the requested items/service?', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E293B), fontSize: 13))),
               const SizedBox(height: 16),
               Row(
                 children: [
-                  Expanded(
-                    child: _buildActionButton(
-                      'RECEIVED', 
-                      const Color(0xFF10B981), 
-                      Icons.check_circle_outline, 
-                      () => _updateTicketStatus(RequestStatus.closed)
-                    ),
-                  ),
+                  Expanded(child: _buildActionButton('RECEIVED', const Color(0xFF10B981), Icons.check_circle_outline, () => _updateTicketStatus(RequestStatus.closed))),
                   const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildActionButton(
-                      'NOT RECEIVED', 
-                      const Color(0xFFEF4444), 
-                      Icons.cancel_outlined, 
-                      () => _updateTicketStatus(RequestStatus.pending)
-                    ),
-                  ),
+                  Expanded(child: _buildActionButton('NOT RECEIVED', const Color(0xFFEF4444), Icons.cancel_outlined, () => _updateTicketStatus(RequestStatus.pending))),
                 ],
               ),
             ],
 
             const SizedBox(height: 16),
             if (showAdminSection) ...[
-              TextField(
-                controller: _commentController,
-                decoration: const InputDecoration(hintText: 'Add your official comments here...', fillColor: Colors.white),
-              ),
+              TextField(controller: _commentController, decoration: const InputDecoration(hintText: 'Add your official comments here...', fillColor: Colors.white)),
               const SizedBox(height: 24),
               Row(
                 children: [
-                  Expanded(
-                    child: _buildActionButton(
-                      isForwarding ? 'FORWARD' : 'APPROVE', 
-                      const Color(0xFF10B981), 
-                      isForwarding ? Icons.arrow_forward : Icons.check_circle_outline, 
-                      buttonsEnabled ? () => isForwarding ? _forwardTicket() : _updateTicketStatus(RequestStatus.approved) : null
-                    )
-                  ),
+                  Expanded(child: _buildActionButton(isForwarding ? 'FORWARD' : 'APPROVE', const Color(0xFF10B981), isForwarding ? Icons.arrow_forward : Icons.check_circle_outline, buttonsEnabled ? () => isForwarding ? _forwardTicket() : _updateTicketStatus(RequestStatus.approved) : null)),
                   if (role != 'MANAGEMENT') ...[
                     const SizedBox(width: 8),
-                    Expanded(
-                      child: _buildActionButton(
-                        'CHECKING', 
-                        Colors.orange, 
-                        Icons.access_time, 
-                        buttonsEnabled ? () async {
-                          final result = await showDialog(
-                            context: context,
-                            builder: (context) => CheckingDeadlineModal(ticketId: widget.ticketId),
-                          );
-                          if (result == true) {
-                            _loadInitialData();
-                          }
-                        } : null
-                      )
-                    ),
+                    Expanded(child: _buildActionButton('CHECKING', Colors.orange, Icons.access_time, buttonsEnabled ? () async {
+                      final result = await showDialog(context: context, builder: (context) => CheckingDeadlineModal(ticketId: widget.ticketId));
+                      if (result == true) _loadInitialData();
+                    } : null)),
                   ],
                   const SizedBox(width: 8),
                   Expanded(child: _buildActionButton('REJECT', Colors.red, Icons.cancel_outlined, buttonsEnabled ? () => _updateTicketStatus(RequestStatus.rejected) : null)),
@@ -693,17 +531,11 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
             const SizedBox(height: 12),
             if (canCloseTicket)
               SizedBox(
-                width: double.infinity,
-                height: 48,
+                width: double.infinity, height: 48,
                 child: ElevatedButton(
                   onPressed: () async {
-                    final result = await showDialog(
-                      context: context, 
-                      builder: (context) => CloseTicketModal(ticketId: widget.ticketId)
-                    );
-                    if (result == true) {
-                      _loadInitialData();
-                    }
+                    final result = await showDialog(context: context, builder: (context) => CloseTicketModal(ticketId: widget.ticketId));
+                    if (result == true) _loadInitialData();
                   },
                   style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
                   child: const Text('Close Ticket', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
@@ -745,10 +577,68 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
   }
 }
 
+class _AttachmentsSection extends StatelessWidget {
+  final RequestModel ticket;
+  final Function(String url, String name) onPreview;
+
+  const _AttachmentsSection({required this.ticket, required this.onPreview});
+
+  bool _isImage(String fileName) {
+    final lowerCaseFileName = fileName.toLowerCase();
+    return lowerCaseFileName.endsWith('.jpg') || lowerCaseFileName.endsWith('.jpeg') || lowerCaseFileName.endsWith('.png') || lowerCaseFileName.endsWith('.webp');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final List<String> urls = ticket.fileUrls ?? [];
+    final List<String> names = ticket.fileNames ?? [];
+    List<Widget> attachmentWidgets = [];
+
+    if (urls.isNotEmpty && names.length == urls.length) {
+      for (int i = 0; i < urls.length; i++) {
+        attachmentWidgets.add(_buildAttachmentItem(context, urls[i], names[i]));
+      }
+    } else if (ticket.attachedFileUrl != null && ticket.attachedFileName != null) {
+      attachmentWidgets.add(_buildAttachmentItem(context, ticket.attachedFileUrl!, ticket.attachedFileName!));
+    }
+
+    if (attachmentWidgets.isEmpty) {
+      return Container(
+        width: double.infinity, padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(color: const Color(0xFFF8FAFC), border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(8)),
+        child: const Center(child: Text('No document attached', style: TextStyle(color: Colors.grey, fontSize: 12))),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: attachmentWidgets.map((w) => Padding(padding: const EdgeInsets.only(bottom: 8.0), child: w)).toList(),
+    );
+  }
+
+  Widget _buildAttachmentItem(BuildContext context, String url, String name) {
+    return InkWell(
+      onTap: () => onPreview(url, name),
+      child: Container(
+        width: double.infinity, padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(color: const Color(0xFFF8FAFC), border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(8)),
+        child: Row(
+          children: [
+            _isImage(name)
+                ? ClipRRect(borderRadius: BorderRadius.circular(4), child: Image.network(url, width: 40, height: 40, fit: BoxFit.cover, errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 40, color: Colors.red)))
+                : const Icon(Icons.insert_drive_file, color: Color(0xFF5C59E8), size: 20),
+            const SizedBox(width: 8),
+            Expanded(child: Text(name, style: const TextStyle(color: Color(0xFF5C59E8), fontWeight: FontWeight.bold, decoration: TextDecoration.underline, fontSize: 12), overflow: TextOverflow.ellipsis, maxLines: 1)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _ChatBottomSheet extends ConsumerStatefulWidget {
   final String ticketId;
   const _ChatBottomSheet({required this.ticketId});
-
   @override
   ConsumerState<_ChatBottomSheet> createState() => _ChatBottomSheetState();
 }
@@ -774,23 +664,14 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
 
   Future<void> _loadMessages() async {
     final messages = await ref.read(requestProvider.notifier).fetchChatMessages(widget.ticketId);
-    if (mounted) {
-      setState(() {
-        _chatMessages = messages;
-        _isChatLoading = false;
-      });
-    }
+    if (mounted) setState(() { _chatMessages = messages; _isChatLoading = false; });
   }
 
   Future<void> _pickFile() async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(withData: true);
-      if (result != null) {
-        setState(() => _stagedFile = result.files.single);
-      }
-    } catch (e) {
-      debugPrint('Error picking file: $e');
-    }
+      if (result != null) setState(() => _stagedFile = result.files.single);
+    } catch (e) { debugPrint('Error picking file: $e'); }
   }
 
   Future<void> _sendMessage() async {
@@ -799,21 +680,14 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
       setState(() => _isSending = true);
       ChatModel? newMessage;
       if (_stagedFile != null) {
-        newMessage = await ref.read(requestProvider.notifier).sendFileAttachment(
-          widget.ticketId, text: text, fileBytes: _stagedFile?.bytes, fileName: _stagedFile?.name,
-          filePath: kIsWeb ? null : _stagedFile?.path,
-        );
+        newMessage = await ref.read(requestProvider.notifier).sendFileAttachment(widget.ticketId, text: text, fileBytes: _stagedFile?.bytes, fileName: _stagedFile?.name, filePath: kIsWeb ? null : _stagedFile?.path);
       } else {
         newMessage = await ref.read(requestProvider.notifier).sendChatMessage(widget.ticketId, text, 'message');
       }
       if (mounted) {
         setState(() => _isSending = false);
         if (newMessage != null) {
-          setState(() {
-            _chatMessages.add(newMessage!);
-            _messageController.clear();
-            _stagedFile = null;
-          });
+          setState(() { _chatMessages.add(newMessage!); _messageController.clear(); _stagedFile = null; });
         }
       }
     }
@@ -826,9 +700,7 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
     final currentTicket = requests.firstWhere((r) => r.id == widget.ticketId || r.slNo == widget.ticketId, orElse: () => requests.first);
 
     return DraggableScrollableSheet(
-      initialChildSize: 0.8,
-      minChildSize: 0.5,
-      maxChildSize: 0.95,
+      initialChildSize: 0.8, minChildSize: 0.5, maxChildSize: 0.95,
       builder: (_, controller) => Container(
         decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
         child: Column(
@@ -842,11 +714,7 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
                   const SizedBox(width: 12),
                   const Text('ACTIVITY & CHAT', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                   const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(color: const Color(0xFF5C59E8), borderRadius: BorderRadius.circular(12)),
-                    child: Text('${_chatMessages.length}', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                  ),
+                  Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: const Color(0xFF5C59E8), borderRadius: BorderRadius.circular(12)), child: Text('${_chatMessages.length}', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold))),
                   const SizedBox(width: 8),
                   IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close, size: 20)),
                 ],
@@ -854,14 +722,9 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
             ),
             const Divider(),
             Expanded(
-              child: _isChatLoading 
-                ? const Center(child: CircularProgressIndicator())
-                : ListView.builder(
-                    controller: controller,
-                    padding: const EdgeInsets.all(24),
-                    itemCount: _chatMessages.length,
-                    itemBuilder: (context, index) => _buildChatBubble(_chatMessages[index], currentTicket),
-                  ),
+              child: _isChatLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : ListView.builder(controller: controller, padding: const EdgeInsets.all(24), itemCount: _chatMessages.length, itemBuilder: (context, index) => _buildChatBubble(_chatMessages[index], currentTicket)),
             ),
             _buildInputSection(),
           ],
@@ -878,25 +741,12 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (_stagedFile != null)
-            ListTile(
-              dense: true,
-              leading: const Icon(Icons.attach_file, size: 16, color: Color(0xFF5C59E8)),
-              title: Text(_stagedFile!.name, style: const TextStyle(fontSize: 12)),
-              trailing: IconButton(onPressed: () => setState(() => _stagedFile = null), icon: const Icon(Icons.close, size: 16, color: Colors.red)),
-            ),
+            ListTile(dense: true, leading: const Icon(Icons.attach_file, size: 16, color: Color(0xFF5C59E8)), title: Text(_stagedFile!.name, style: const TextStyle(fontSize: 12)), trailing: IconButton(onPressed: () => setState(() => _stagedFile = null), icon: const Icon(Icons.close, size: 16, color: Colors.red))),
           Row(
             children: [
               IconButton(onPressed: _pickFile, icon: const Icon(Icons.attach_file, color: Colors.grey)),
-              Expanded(
-                child: TextField(
-                  controller: _messageController,
-                  decoration: const InputDecoration(hintText: 'Type your message...', border: InputBorder.none, enabledBorder: InputBorder.none, focusedBorder: InputBorder.none, filled: false),
-                ),
-              ),
-              IconButton(
-                onPressed: _isSending ? null : _sendMessage, 
-                icon: _isSending ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send, color: Color(0xFF5C59E8)),
-              ),
+              Expanded(child: TextField(controller: _messageController, decoration: const InputDecoration(hintText: 'Type your message...', border: InputBorder.none, enabledBorder: InputBorder.none, focusedBorder: InputBorder.none, filled: false))),
+              IconButton(onPressed: _isSending ? null : _sendMessage, icon: _isSending ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send, color: Color(0xFF5C59E8))),
             ],
           ),
         ],
@@ -908,18 +758,11 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
     final authState = ref.read(authProvider);
     final user = authState.user;
     final bool isMe = chat.senderId == user?.userId;
-    
-    final bool isClosureMessage = chat.text?.toLowerCase().contains('ticket closed') == true ||
-                                 chat.text?.toLowerCase().contains('resolution submitted') == true;
-
+    final bool isClosureMessage = chat.text?.toLowerCase().contains('ticket closed') == true || chat.text?.toLowerCase().contains('resolution submitted') == true;
     String initials = '??';
     if (chat.senderName.trim().isNotEmpty) {
       List<String> nameParts = chat.senderName.trim().split(' ');
-      if (nameParts.length >= 2) {
-        initials = (nameParts[0][0] + nameParts[1][0]).toUpperCase();
-      } else {
-        initials = chat.senderName.substring(0, chat.senderName.length >= 2 ? 2 : 1).toUpperCase();
-      }
+      initials = nameParts.length >= 2 ? (nameParts[0][0] + nameParts[1][0]).toUpperCase() : chat.senderName.substring(0, chat.senderName.length >= 2 ? 2 : 1).toUpperCase();
     }
 
     return Padding(
@@ -928,82 +771,28 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
         children: [
-          if (!isMe)
-            CircleAvatar(radius: 16, backgroundColor: const Color(0xFFE2E8F0), child: Text(initials, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF5C59E8)))),
+          if (!isMe) CircleAvatar(radius: 16, backgroundColor: const Color(0xFFE2E8F0), child: Text(initials, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF5C59E8)))),
           const SizedBox(width: 12),
           Flexible(
             child: Column(
               crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
               children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(chat.senderRole, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                    const SizedBox(width: 8),
-                    Text(DateFormat('dd/MM HH:mm').format(chat.createdAt), style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                  ]
-                ),
+                Row(mainAxisSize: MainAxisSize.min, children: [Text(chat.senderRole, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)), const SizedBox(width: 8), Text(DateFormat('dd/MM HH:mm').format(chat.createdAt), style: const TextStyle(fontSize: 10, color: Colors.grey))]),
                 const SizedBox(height: 8),
                 Container(
-                  padding: const EdgeInsets.all(12), 
-                  decoration: BoxDecoration(
-                    color: isMe ? const Color(0xFF5C59E8) : const Color(0xFFF8FAFC), 
-                    borderRadius: BorderRadius.circular(12)
-                  ), 
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: isMe ? const Color(0xFF5C59E8) : const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(12)),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (isClosureMessage) ...[
-                        Text(
-                          chat.text!,
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isMe ? Colors.white : Colors.black),
-                        ),
-                        // if (ticket.resolutionNote != null && ticket.resolutionNote!.isNotEmpty) ...[
-                        //   const SizedBox(height: 8),
-                        //   Text(
-                        //     'Resolution: ${ticket.resolutionNote}',
-                        //     style: TextStyle(
-                        //       fontSize: 11,
-                        //       fontWeight: FontWeight.w600,
-                        //       color: isMe ? Colors.white.withValues(alpha: 0.9) : Colors.black87
-                        //     ),
-                        //   ),
-                        // ],
-
-                      ] else if (chat.text != null && chat.text!.isNotEmpty) ...[
-                        Text(
-                          chat.text!,
-                          style: TextStyle(fontSize: 12, color: isMe ? Colors.white : Colors.black)
-                        ),                      ],
-
+                      if (isClosureMessage) Text(chat.text!, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isMe ? Colors.white : Colors.black))
+                      else if (chat.text != null && chat.text!.isNotEmpty) Text(chat.text!, style: TextStyle(fontSize: 12, color: isMe ? Colors.white : Colors.black)),
                       if (chat.fileUrl != null || (isClosureMessage && ticket.attachedFileUrl != null))
                         InkWell(
                           onTap: () => _previewChatAttachment(chat),
                           child: Container(
-                            margin: const EdgeInsets.only(top: 8),
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 40),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.insert_drive_file, size: 16, color: isMe ? Colors.white : const Color(0xFF5C59E8)),
-                                const SizedBox(width: 8),
-                                Flexible(
-                                  child: Text(
-                                    chat.fileName ?? ticket.attachedFileName ?? 'Attachment',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: isMe ? Colors.white : const Color(0xFF5C59E8),
-                                      decoration: TextDecoration.underline
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
+                            margin: const EdgeInsets.only(top: 8), padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.white.withOpacity(0.4), borderRadius: BorderRadius.circular(8)),
+                            child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.insert_drive_file, size: 16, color: isMe ? Colors.white : const Color(0xFF5C59E8)), const SizedBox(width: 8), Flexible(child: Text(chat.fileName ?? ticket.attachedFileName ?? 'Attachment', style: TextStyle(fontSize: 11, color: isMe ? Colors.white : const Color(0xFF5C59E8), decoration: TextDecoration.underline), overflow: TextOverflow.ellipsis))]),
                           ),
                         ),
                     ],
@@ -1012,10 +801,7 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
               ],
             ),
           ),
-          if (isMe) ...[
-            const SizedBox(width: 12),
-            CircleAvatar(radius: 16, backgroundColor: const Color(0xFF5C59E8), child: Text(initials, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white))),
-          ]
+          if (isMe) ...[const SizedBox(width: 12), CircleAvatar(radius: 16, backgroundColor: const Color(0xFF5C59E8), child: Text(initials, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white)))],
         ],
       ),
     );
@@ -1031,19 +817,8 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                AppBar(
-                  title: Text(chat.fileName ?? 'Attachment Preview'),
-                  automaticallyImplyLeading: false,
-                  actions: [
-                    IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
-                  ],
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: _buildChatAttachmentPreview(chat),
-                  ),
-                ),
+                AppBar(title: Text(chat.fileName ?? 'Attachment Preview'), automaticallyImplyLeading: false, actions: [IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close))]),
+                Expanded(child: Padding(padding: const EdgeInsets.all(16.0), child: _buildChatAttachmentPreview(chat))),
               ],
             ),
           ),
@@ -1055,30 +830,9 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
   Widget _buildChatAttachmentPreview(ChatModel chat) {
     final fileName = chat.fileName?.toLowerCase() ?? '';
     final url = chat.fileUrl ?? '';
-
     if (fileName.endsWith('.jpg') || fileName.endsWith('.jpeg') || fileName.endsWith('.png') || fileName.endsWith('.gif')) {
-      return Image.network(
-        url,
-        fit: BoxFit.contain,
-        errorBuilder: (context, error, stackTrace) => const Center(child: Text('Failed to load image')),
-        loadingBuilder: (context, child, loadingProgress) {
-          if (loadingProgress == null) return child;
-          return const Center(child: CircularProgressIndicator());
-        },
-      );
+      return Image.network(url, fit: BoxFit.contain, errorBuilder: (context, error, stackTrace) => const Center(child: Text('Failed to load image')), loadingBuilder: (context, child, loadingProgress) => loadingProgress == null ? child : const Center(child: CircularProgressIndicator()));
     }
-    
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.insert_drive_file, size: 64, color: Colors.grey),
-          const SizedBox(height: 16),
-          Text('Preview not available for this file type.', style: TextStyle(color: Colors.grey[600])),
-          const SizedBox(height: 8),
-          Text(chat.fileName ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
-        ],
-      ),
-    );
+    return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [const Icon(Icons.insert_drive_file, size: 64, color: Colors.grey), const SizedBox(height: 16), Text('Preview not available for this file type.', style: TextStyle(color: Colors.grey[600])), const SizedBox(height: 8), Text(chat.fileName ?? '', style: const TextStyle(fontWeight: FontWeight.bold))]));
   }
 }
