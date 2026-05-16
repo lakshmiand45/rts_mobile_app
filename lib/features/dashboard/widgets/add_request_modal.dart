@@ -27,7 +27,7 @@ class _AddRequestModalState extends ConsumerState<AddRequestModal> {
     'Academic', 'Admin', 'Animation', 'Broadcasting',
     'Business Development', 'Corporate Communications', 'Documantation', 'Govt.Relations',
     'HR', 'Management', 'Marketing', 'Operation', 'Purchase', 'Software', 'Store',
-    'System admin', 'Technical Support'
+    'System admin', 'Technical Support','Game Development'
   ];
 
   // Priority Logic (Frontend Only)

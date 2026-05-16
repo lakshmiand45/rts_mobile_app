@@ -27,7 +27,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
     'Academic','Admin','Animation','Broadcasting',
     'Business Development','Corporate Communications','Documantation','Documentation','Govt.Relations',
     'HR','Management','Marketing','Operation','Purchase','Software','Store','System admin',
-    'Technical Support', 'Finance', 'IT'
+    'Technical Support', 'Finance', 'IT','Game Development'
   ];
 
   @override
@@ -243,12 +243,17 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
             user.empId.toString().trim() == currentTicket.empId.toString().trim() ||
             user.name.trim().toLowerCase() == currentTicket.userName.trim().toLowerCase()
     );
+//Requests from other department
+    final bool isOtherDepartmentHandler = user != null &&
+        user.department.toLowerCase() != currentTicket.department.toLowerCase() &&
+        currentTicket.assignedDepartments != null &&
+        currentTicket.assignedDepartments!.map((e) => e.toLowerCase()).contains(user.department.toLowerCase());
 
-    final bool buttonsEnabled = isAuthorizedRole && !isClosed && !isResolved;
-    final bool showAdminSection = isAuthorizedRole && !isClosed && !isResolved;
-    final bool canForward = isAuthorizedRole && !isClosed && !isResolved;
+    final bool buttonsEnabled = (isAuthorizedRole || isOtherDepartmentHandler) && !isClosed && !isResolved;
+    final bool showAdminSection = (isAuthorizedRole || isOtherDepartmentHandler) && !isClosed && !isResolved;
+    final bool canForward = isAuthorizedRole && !isClosed && !isResolved; // Only existing authorized roles can forward
     final bool isForwarding = selectedDept != null && selectedDept != currentTicket.assignedDepartment;
-    final bool canCloseTicket = (role == 'DEPTHOD' || role == 'ADMIN') && !isClosed && !isResolved;
+    final bool canCloseTicket = ((role == 'DEPTHOD' || role == 'ADMIN') || isOtherDepartmentHandler) && !isClosed && !isResolved;
 
     final bool showRequestorActions = isUserRequestor && !isClosed &&
         (isResolved ||
@@ -510,21 +515,25 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
             ],
 
             const SizedBox(height: 16),
-            if (showAdminSection) ...[
+            if (isAuthorizedRole || isOtherDepartmentHandler) ...[ // This whole section is for admin/other dept handler actions
               TextField(controller: _commentController, decoration: const InputDecoration(hintText: 'Add your official comments here...', fillColor: Colors.white)),
               const SizedBox(height: 24),
               Row(
+                mainAxisAlignment: MainAxisAlignment.start,
                 children: [
-                  Expanded(child: _buildActionButton(isForwarding ? 'FORWARD' : 'APPROVE', const Color(0xFF10B981), isForwarding ? Icons.arrow_forward : Icons.check_circle_outline, buttonsEnabled ? () => isForwarding ? _forwardTicket() : _updateTicketStatus(RequestStatus.approved) : null)),
-                  if (role != 'MANAGEMENT') ...[
+                  if (isAuthorizedRole) ...[ // Only show APPROVE/REJECT/FORWARD for genuinely authorized roles
+                    Expanded(child: _buildActionButton(isForwarding ? 'FORWARD' : 'APPROVE', const Color(0xFF10B981), isForwarding ? Icons.arrow_forward : Icons.check_circle_outline, buttonsEnabled ? () => isForwarding ? _forwardTicket() : _updateTicketStatus(RequestStatus.approved) : null)),
                     const SizedBox(width: 8),
+                  ],
+                  if (role != 'MANAGEMENT' && (isAuthorizedRole || isOtherDepartmentHandler)) ...[ // CHECKING button visible for both
                     Expanded(child: _buildActionButton('CHECKING', Colors.orange, Icons.access_time, buttonsEnabled ? () async {
                       final result = await showDialog(context: context, builder: (context) => CheckingDeadlineModal(ticketId: widget.ticketId));
                       if (result == true) _loadInitialData();
                     } : null)),
+                    const SizedBox(width: 8),
                   ],
-                  const SizedBox(width: 8),
-                  Expanded(child: _buildActionButton('REJECT', Colors.red, Icons.cancel_outlined, buttonsEnabled ? () => _updateTicketStatus(RequestStatus.rejected) : null)),
+                  if (isAuthorizedRole) // Only show REJECT for genuinely authorized roles
+                    Expanded(child: _buildActionButton('REJECT', Colors.red, Icons.cancel_outlined, buttonsEnabled ? () => _updateTicketStatus(RequestStatus.rejected) : null)),
                 ],
               ),
             ],
