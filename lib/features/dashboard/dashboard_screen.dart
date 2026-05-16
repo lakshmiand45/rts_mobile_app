@@ -94,12 +94,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final bool isHOD = currentUser?.role.toLowerCase() == 'hod';
     final bool isDeptHOD = currentUser?.role.toLowerCase() == 'depthod';
 
-    final bool canAddRequest = !(isRM || isHOD || isDeptHOD);
+    final bool canAddRequest = !(isRM || isHOD || isDeptHOD || isManagement);
 
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: const Color(0xFFF1F5F9),
-      endDrawer: _buildEndDrawer(currentUser, canAddRequest),
+      endDrawer: isManagement ? null : _buildEndDrawer(currentUser, canAddRequest),
       body: SafeArea(
         child: Column(
           children: [
@@ -169,16 +169,17 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         ],
                       ),
                     ),
-                    Container(
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE2E8F0),
-                        borderRadius: BorderRadius.circular(8),
+                    if (!isManagement)
+                      Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE2E8F0),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: IconButton(
+                          icon: const Icon(Icons.menu, color: Color(0xFF5C59E8)),
+                          onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+                        ),
                       ),
-                      child: IconButton(
-                        icon: const Icon(Icons.menu, color: Color(0xFF5C59E8)),
-                        onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
-                      ),
-                    ),
                   ],
                 ),
               ),
@@ -714,6 +715,8 @@ class _RequestCard extends ConsumerWidget {
                   children: [
                     if (!request.isRead) const Padding(padding: EdgeInsets.only(right: 8.0), child: Icon(Icons.circle, size: 8, color: Color(0xFF5C59E8))),
                     Text('Sl.No - ${request.slNo}', style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
+                    const SizedBox(width: 8),
+                    Text(DateFormat('dd/MM/yyyy').format(request.date), style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
                     if (request.unreadChatCount > 0) ...[
                       const SizedBox(width: 8),
                       Container(

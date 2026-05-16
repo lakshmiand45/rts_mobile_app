@@ -253,7 +253,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
     final bool showAdminSection = (isAuthorizedRole || isOtherDepartmentHandler) && !isClosed && !isResolved;
     final bool canForward = isAuthorizedRole && !isClosed && !isResolved; // Only existing authorized roles can forward
     final bool isForwarding = selectedDept != null && selectedDept != currentTicket.assignedDepartment;
-    final bool canCloseTicket = ((role == 'DEPTHOD' || role == 'ADMIN') || isOtherDepartmentHandler) && !isClosed && !isResolved;
+    final bool canCloseTicket = ((role == 'DEPTHOD' || role == 'ADMIN' || role == 'MANAGEMENT') || isOtherDepartmentHandler) && !isClosed && !isResolved;
 
     final bool showRequestorActions = isUserRequestor && !isClosed &&
         (isResolved ||
@@ -525,7 +525,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
                     Expanded(child: _buildActionButton(isForwarding ? 'FORWARD' : 'APPROVE', const Color(0xFF10B981), isForwarding ? Icons.arrow_forward : Icons.check_circle_outline, buttonsEnabled ? () => isForwarding ? _forwardTicket() : _updateTicketStatus(RequestStatus.approved) : null)),
                     const SizedBox(width: 8),
                   ],
-                  if (role != 'MANAGEMENT' && (isAuthorizedRole || isOtherDepartmentHandler)) ...[ // CHECKING button visible for both
+                  if (isAuthorizedRole || isOtherDepartmentHandler) ...[ // CHECKING button visible for both
                     Expanded(child: _buildActionButton('CHECKING', Colors.orange, Icons.access_time, buttonsEnabled ? () async {
                       final result = await showDialog(context: context, builder: (context) => CheckingDeadlineModal(ticketId: widget.ticketId));
                       if (result == true) _loadInitialData();
