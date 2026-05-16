@@ -90,11 +90,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final authState = ref.watch(authProvider);
     final currentUser = authState.user;
     final bool isManagement = currentUser?.role.toLowerCase() == 'management';
+    final bool isRM = currentUser?.role.toLowerCase() == 'rm';
+    final bool isHOD = currentUser?.role.toLowerCase() == 'hod';
+    final bool isDeptHOD = currentUser?.role.toLowerCase() == 'depthod';
+
+    final bool canAddRequest = !(isRM || isHOD || isDeptHOD);
 
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: const Color(0xFFF1F5F9),
-      endDrawer: _buildEndDrawer(currentUser),
+      endDrawer: _buildEndDrawer(currentUser, canAddRequest),
       body: SafeArea(
         child: Column(
           children: [
@@ -207,7 +212,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       ),
                     ),
                   ),
-                  if (!isManagement) ...[
+                  if (canAddRequest) ...[
                     const SizedBox(width: 12),
                     SizedBox(
                       height: 50,
@@ -325,7 +330,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildEndDrawer(UserModel? currentUser) {
+  Widget _buildEndDrawer(UserModel? currentUser, bool canAddRequest) {
     final bool canTriggerReminder = currentUser?.role == 'DeptHOD' &&
         (currentUser?.department == 'HR' || currentUser?.department == 'Food Committee');
     final bool isBangalore = currentUser?.location.toLowerCase() == 'bangalore';
@@ -366,7 +371,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             child: ListView(
               padding: const EdgeInsets.symmetric(vertical: 8),
               children: [
-                if (!isManagement)
+                if (canAddRequest)
                   _buildDrawerItem(
                     icon: Icons.add_circle_outline,
                     label: 'Add Request',
