@@ -169,17 +169,25 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         ],
                       ),
                     ),
-                    if (!isManagement)
-                      Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE2E8F0),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: IconButton(
-                          icon: const Icon(Icons.menu, color: Color(0xFF5C59E8)),
-                          onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
-                        ),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE2E8F0),
+                        borderRadius: BorderRadius.circular(8),
                       ),
+                      child: IconButton(
+                        icon: Icon(
+                          isManagement ? Icons.logout : Icons.menu,
+                          color: isManagement ? Colors.red : const Color(0xFF5C59E8),
+                        ),
+                        onPressed: () {
+                          if (isManagement) {
+                            _handleLogout();
+                          } else {
+                            _scaffoldKey.currentState?.openEndDrawer();
+                          }
+                        },
+                      ),
+                    ),
                   ],
                 ),
               ),

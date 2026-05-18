@@ -209,6 +209,20 @@ class ApiService {
         return MediaType('image', 'gif');
       case 'pdf':
         return MediaType('application', 'pdf');
+      case 'doc':
+      case 'docx':
+        return MediaType('application', 'vnd.openxmlformats-officedocument.wordprocessingml.document');
+      case 'xls':
+      case 'xlsx':
+        return MediaType('application', 'vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      case 'csv':
+        return MediaType('text', 'csv');
+      case 'mp3':
+        return MediaType('audio', 'mpeg');
+      case 'wav':
+        return MediaType('audio', 'wav');
+      case 'mp4a':
+        return MediaType('audio', 'mp4');
       default:
         return MediaType('application', 'octet-stream');
     }
