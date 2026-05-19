@@ -155,6 +155,8 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
     bool resetName = clearName;
     bool resetAssignedDept = clearAssignedDept;
 
+    debugPrint('DEBUG: updateFilters - Incoming statuses: $statuses, date: $date');
+
     if (scope == 'sent') resetName = true;
     if (scope == 'received') resetAssignedDept = true;
 
@@ -171,6 +173,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
       selectedDate: date,
       search: search,
     );
+    debugPrint('DEBUG: updateFilters - State after copyWith: selectedStatuses: ${state.selectedStatuses}, selectedDate: ${state.selectedDate}');
 
     await fetchRequests(page: 1);
   }
@@ -246,6 +249,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
       if (state.search.isNotEmpty) queryParams['search'] = state.search;
 
       final queryString = Uri(queryParameters: queryParams).query;
+      debugPrint('DEBUG: Fetch Requests Query String: $queryString');
       final response = await _apiService.get('/requests?$queryString');
       final dynamic decodedData = json.decode(response.body);
 

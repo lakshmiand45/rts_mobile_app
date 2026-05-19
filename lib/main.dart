@@ -1,17 +1,28 @@
-import 'dart:async';
+import 'dart:async'; // For StreamSubscription
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:app_links/app_links.dart';
-import 'features/auth/login_screen.dart';
-import 'features/auth/reset_password_screen.dart';
-import 'features/dashboard/dashboard_screen.dart';
-import 'features/food_request/food_request_screen.dart';
-import 'features/food_request/food_subscription_screen.dart';
-import 'providers/auth_provider.dart';
-import 'providers/food_provider.dart';
+
+import 'package:rts/providers/auth_provider.dart';
+import 'package:rts/providers/push_notification_provider.dart';
+import 'package:rts/features/auth/login_screen.dart';
+import 'package:rts/features/auth/reset_password_screen.dart';
+import 'package:rts/providers/food_provider.dart';
+import 'package:rts/features/food_request/food_request_screen.dart';
+import 'package:rts/features/food_request/food_subscription_screen.dart';
+import 'package:rts/features/dashboard/dashboard_screen.dart';
+import 'package:rts/models/user_model.dart'; // Assuming UserModel is needed for user.location and user.role
+
+
+// Defi
+// ne a global NavigatorKey
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
 
   runApp(
     const ProviderScope(
@@ -30,13 +41,17 @@ class RTSApp extends ConsumerStatefulWidget {
 class _RTSAppState extends ConsumerState<RTSApp> {
   late AppLinks _appLinks;
   StreamSubscription<Uri>? _linkSubscription;
-  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  // Use the global navigatorKey
+  // final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>(); // REMOVED
 
   @override
   void initState() {
     super.initState();
     initDeepLinks();
+    // Initialize push notifications
+    ref.read(pushNotificationProvider.notifier).initialize();
   }
+
 
   @override
   void dispose() {
@@ -58,7 +73,7 @@ class _RTSAppState extends ConsumerState<RTSApp> {
   void _handleDeepLink(Uri uri) {
     if (uri.path.startsWith('/reset-password/')) {
       final token = uri.pathSegments.last;
-      _navigatorKey.currentState?.push(
+      navigatorKey.currentState?.push( // Use global navigatorKey
         MaterialPageRoute(
           builder: (context) => ResetPasswordScreen(token: token),
         ),
@@ -71,7 +86,7 @@ class _RTSAppState extends ConsumerState<RTSApp> {
     final authState = ref.watch(authProvider);
 
     return MaterialApp(
-      navigatorKey: _navigatorKey,
+      navigatorKey: navigatorKey, // Use global navigatorKey
       title: 'RTS System',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(

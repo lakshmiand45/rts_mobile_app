@@ -719,22 +719,37 @@ class _RequestCard extends ConsumerWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    if (!request.isRead) const Padding(padding: EdgeInsets.only(right: 8.0), child: Icon(Icons.circle, size: 8, color: Color(0xFF5C59E8))),
-                    Text('Sl.No - ${request.slNo}', style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
-                    const SizedBox(width: 8),
-                    Text(DateFormat('dd/MM/yyyy').format(request.date), style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
-                    if (request.unreadChatCount > 0) ...[
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(color: const Color(0xFF5C59E8), borderRadius: BorderRadius.circular(10)),
-                        child: Text('${request.unreadChatCount} new chat', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                Expanded(
+                  child: Row(
+                    children: [
+                      if (!request.isRead) const Padding(padding: EdgeInsets.only(right: 8.0), child: Icon(Icons.circle, size: 8, color: Color(0xFF5C59E8))),
+                      Flexible(
+                        child: Text(
+                          'Sl.No - ${request.slNo}',
+                          style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
+                      const SizedBox(width: 8),
+                      Text(DateFormat('dd/MM/yyyy').format(request.date), style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
+                      if (request.unreadChatCount > 0) ...[
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(color: const Color(0xFF5C59E8), borderRadius: BorderRadius.circular(10)),
+                            child: Text(
+                              '${request.unreadChatCount} new chat',
+                              style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
+                const SizedBox(width: 8),
                 const Text('Requestor Status', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
               ],
             ),
