@@ -96,6 +96,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     final bool canAddRequest = !(isRM || isHOD || isDeptHOD || isManagement);
 
+    final bool hasActiveFilters = state.selectedName != null ||
+        state.selectedDept != null ||
+        state.selectedAssignedDept != null ||
+        state.selectedStatuses.isNotEmpty ||
+        state.selectedDate != null ||
+        state.search.isNotEmpty ||
+        state.scope != 'all';
+
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: const Color(0xFFF1F5F9),
@@ -260,11 +268,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         scrollDirection: Axis.horizontal,
                         child: Row(
                           children: [
-                            if (!isManagement && state.scope != 'all')
+                            if (state.scope != 'all')
                               _buildFilterChip(_getDisplayScope(state.scope), () {
                                 ref.read(requestProvider.notifier).updateFilters(scope: 'all');
                               }),
-                            if (isManagement)
+                            if (isManagement && !hasActiveFilters)
                               _buildFilterChip('HOD Pending', () {}, showClose: false),
                             if (state.selectedName != null)
                               _buildFilterChip(state.selectedName!, () => ref.read(requestProvider.notifier).updateFilters(clearName: true)),
@@ -314,7 +322,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ),
             ),
 
-            if (!state.isLoading && state.totalPages > 1 && !isManagement)
+            if (!state.isLoading && state.totalPages > 1)
               Container(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 color: Colors.white,
@@ -550,8 +558,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   void _showFilterOptions(BuildContext context, bool isManagement) {
-    bool isStatusExpanded = false;
-
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -559,6 +565,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       builder: (context) {
         return Consumer(builder: (context, ref, _) {
           final state = ref.watch(requestProvider);
+          final bool hasAnyFilter = state.selectedName != null ||
+              state.selectedDept != null ||
+              state.selectedAssignedDept != null ||
+              state.selectedStatuses.isNotEmpty ||
+              state.selectedDate != null ||
+              state.scope != 'all';
+
           return StatefulBuilder(builder: (context, setModalState) {
             return Container(
               margin: const EdgeInsets.only(left: 16, right: 16, bottom: 40, top: 80),
@@ -574,65 +587,56 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   children: [
                     Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 20), decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(2)))),
 
-                    if (!isManagement) ...[
-                      _buildFilterDropdownField('Request type', _getDisplayScope(state.scope), ['Request type', 'Sent', 'Received'], (val) {
-                        String newScope = 'all';
-                        if (val == 'Sent') newScope = 'sent';
-                        if (val == 'Received') newScope = 'received';
-                        ref.read(requestProvider.notifier).updateFilters(scope: newScope);
-                      }),
-                      const SizedBox(height: 16),
-                    ],
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Filter Options', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                        if (hasAnyFilter)
+                          TextButton.icon(
+                            onPressed: () {
+                              ref.read(requestProvider.notifier).updateFilters(
+                                clearName: true,
+                                clearDept: true,
+                                clearAssignedDept: true,
+                                clearDate: true,
+                                clearStatus: true,
+                                scope: 'all',
+                              );
+                            },
+                            icon: const Icon(Icons.refresh, size: 18, color: Colors.red),
+                            label: const Text('Clear All', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    _buildFilterDropdownField('Request type', _getDisplayScope(state.scope), ['Request type', 'Sent', 'Received'], (val) {
+                      String newScope = 'all';
+                      if (val == 'Sent') newScope = 'sent';
+                      if (val == 'Received') newScope = 'received';
+                      ref.read(requestProvider.notifier).updateFilters(scope: newScope);
+                    }, onClear: state.scope != 'all' ? () => ref.read(requestProvider.notifier).updateFilters(scope: 'all') : null),
+                    const SizedBox(height: 16),
 
                     _buildFilterDropdownField('Requestor Name', state.selectedName, state.filterNames, (val) {
                       ref.read(requestProvider.notifier).updateFilters(name: val);
-                    }),
+                    }, onClear: state.selectedName != null ? () => ref.read(requestProvider.notifier).updateFilters(clearName: true) : null),
                     const SizedBox(height: 16),
 
                     _buildFilterDropdownField('Requestor Department', state.selectedDept, state.filterDepts, (val) {
                       ref.read(requestProvider.notifier).updateFilters(dept: val);
-                    }),
+                    }, onClear: state.selectedDept != null ? () => ref.read(requestProvider.notifier).updateFilters(clearDept: true) : null),
                     const SizedBox(height: 16),
 
                     _buildFilterDropdownField('Assigned Department', state.selectedAssignedDept, state.filterAssignedDepts, (val) {
                       ref.read(requestProvider.notifier).updateFilters(assignedDept: val);
-                    }),
+                    }, onClear: state.selectedAssignedDept != null ? () => ref.read(requestProvider.notifier).updateFilters(clearAssignedDept: true) : null),
                     const SizedBox(height: 16),
 
-                    if (!isManagement) ...[
-                      Container(
-                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE2E8F0))),
-                        child: Column(
-                          children: [
-                            InkWell(
-                              onTap: () => setModalState(() => isStatusExpanded = !isStatusExpanded),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(state.selectedStatuses.isEmpty ? 'All Statuses' : 'Statuses (${state.selectedStatuses.length})', style: const TextStyle(color: Color(0xFF1E293B), fontSize: 14)),
-                                    Icon(isStatusExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: const Color(0xFFCBD5E1)),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            if (isStatusExpanded)
-                              ...state.filterStatuses.map((s) => CheckboxListTile(
-                                title: Text(s, style: const TextStyle(fontSize: 14, color: Color(0xFF1E293B))),
-                                value: state.selectedStatuses.contains(s),
-                                dense: true, controlAffinity: ListTileControlAffinity.trailing, activeColor: const Color(0xFF5C59E8),
-                                onChanged: (val) {
-                                  final newList = List<String>.from(state.selectedStatuses);
-                                  if (val == true) { if (!newList.contains(s)) newList.add(s); } else { newList.remove(s); }
-                                  ref.read(requestProvider.notifier).updateFilters(statuses: newList);
-                                },
-                              )),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
+                    _buildFilterDropdownField('All Statuses', state.selectedStatuses.isNotEmpty ? state.selectedStatuses.first : null, state.filterStatuses, (val) {
+                      ref.read(requestProvider.notifier).updateFilters(statuses: val != null ? [val] : []);
+                    }, onClear: state.selectedStatuses.isNotEmpty ? () => ref.read(requestProvider.notifier).updateFilters(clearStatus: true) : null),
+                    const SizedBox(height: 16),
 
                     GestureDetector(
                       onTap: () async {
@@ -647,8 +651,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(state.selectedDate ?? 'mm / dd / yyyy', style: const TextStyle(color: Color(0xFF1E293B), fontSize: 14)),
-                            const Icon(Icons.calendar_today_outlined, color: Color(0xFFCBD5E1), size: 20),
+                            Expanded(child: Text(state.selectedDate ?? 'mm / dd / yyyy', style: const TextStyle(color: Color(0xFF1E293B), fontSize: 14))),
+                            if (state.selectedDate != null)
+                              GestureDetector(
+                                onTap: () => ref.read(requestProvider.notifier).updateFilters(clearDate: true),
+                                child: const Icon(Icons.close, size: 18, color: Color(0xFF94A3B8)),
+                              )
+                            else
+                              const Icon(Icons.calendar_today_outlined, color: Color(0xFFCBD5E1), size: 20),
                           ],
                         ),
                       ),
@@ -665,19 +675,32 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildFilterDropdownField(String label, String? value, List<String> items, ValueChanged<String?> onChanged) {
+  Widget _buildFilterDropdownField(String label, String? value, List<String> items, ValueChanged<String?> onChanged, {VoidCallback? onClear}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE2E8F0))),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: items.contains(value) ? value : null,
-          isExpanded: true,
-          icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFFCBD5E1)),
-          hint: Text(label, style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 14)),
-          items: items.map((i) => DropdownMenuItem(value: i, child: Text(i, style: const TextStyle(color: Color(0xFF1E293B))))).toList(),
-          onChanged: onChanged,
-        ),
+      child: Row(
+        children: [
+          Expanded(
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: items.contains(value) ? value : null,
+                isExpanded: true,
+                icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFFCBD5E1)),
+                hint: Text(label, style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 14)),
+                items: items.map((i) => DropdownMenuItem(value: i, child: Text(i, style: const TextStyle(color: Color(0xFF1E293B))))).toList(),
+                onChanged: onChanged,
+              ),
+            ),
+          ),
+          if (onClear != null && value != null && value != 'Request type')
+            IconButton(
+              icon: const Icon(Icons.close, size: 18, color: Color(0xFF94A3B8)),
+              onPressed: onClear,
+              constraints: const BoxConstraints(),
+              padding: EdgeInsets.zero,
+            ),
+        ],
       ),
     );
   }

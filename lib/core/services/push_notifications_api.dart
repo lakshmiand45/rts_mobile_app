@@ -2,35 +2,41 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'api_service.dart';
 
-class NotificationsApi {
+class PushNotificationsApi {
   final ApiService _apiService;
 
-  NotificationsApi(this._apiService);
+  PushNotificationsApi(this._apiService);
 
-  Future<String> getVapidPublicKey() async {
-    final response = await _apiService.get('/push/vapid-public-key');
-    final data = json.decode(response.body);
-    return data['publicKey'];
+  /// Registers the FCM token with the backend
+  /// POST /push/fcm-register
+  Future<dynamic> registerToken(String token) async {
+    final response = await _apiService.post('/push/fcm-register', {
+      'token': token,
+    });
+    return json.decode(response.body);
   }
 
-  Future<bool> subscribe(Map<String, dynamic> subscription) async {
-    final response = await _apiService.post('/push/subscribe', subscription);
-    final data = json.decode(response.body);
-    return data['success'] ?? false;
+  /// Unregisters the FCM token from the backend
+  /// POST /push/fcm-unregister
+  Future<dynamic> unregisterToken(String token) async {
+    final response = await _apiService.post('/push/fcm-unregister', {
+      'token': token,
+    });
+    return json.decode(response.body);
   }
 
-  Future<bool> unsubscribe(String endpoint) async {
-    final response = await _apiService.post('/push/unsubscribe', {'endpoint': endpoint});
-    final data = json.decode(response.body);
-    return data['success'] ?? false;
-  }
-
-  Future<void> triggerReminder() async {
-    await _apiService.post('/push/trigger-reminder', {});
+  /// Sends a test notification to the current user
+  /// POST /push/fcm-test
+  Future<dynamic> sendTestNotification(String title, String body) async {
+    final response = await _apiService.post('/push/fcm-test', {
+      'title': title,
+      'body': body,
+    });
+    return json.decode(response.body);
   }
 }
 
-final notificationsApiProvider = Provider<NotificationsApi>((ref) {
+final pushNotificationsApiProvider = Provider<PushNotificationsApi>((ref) {
   final apiService = ref.watch(apiServiceProvider);
-  return NotificationsApi(apiService);
+  return PushNotificationsApi(apiService);
 });

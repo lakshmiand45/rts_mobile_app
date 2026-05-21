@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:intl/intl.dart';
 import '../models/request_model.dart';
 import '../models/chat_model.dart';
 import '../core/services/api_service.dart';
@@ -205,8 +206,16 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
   }) async {
     final authState = _ref.read(authProvider);
     final user = authState.user;
+    //for management role filter added
+    bool hasFilters = state.selectedName != null ||
+        state.selectedDept != null ||
+        state.selectedAssignedDept != null ||
+        state.selectedStatuses.isNotEmpty ||
+        state.selectedDate != null ||
+        state.search.isNotEmpty ||
+        state.scope != 'all';
 
-    if (user?.role.toLowerCase() == 'management') {
+    if (user?.role.toLowerCase() == 'management' && !hasFilters) {
       await fetchHODPendingRequests();
       return;
     }
@@ -243,9 +252,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
       if (state.selectedAssignedDept != null && state.scope != 'received') {
         queryParams['assignedDept'] = state.selectedAssignedDept!;
       }
-
-      if (state.selectedStatuses.isNotEmpty) queryParams['status'] = state.selectedStatuses.join(',');
-      if (state.selectedDate != null) queryParams['date'] = state.selectedDate!;
+      if (state.selectedStatuses.isNotEmpty) queryParams['assignedStatus'] = state.selectedStatuses.join(',');
       if (state.search.isNotEmpty) queryParams['search'] = state.search;
 
       final queryString = Uri(queryParameters: queryParams).query;
@@ -268,8 +275,18 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
 
       final mappedRequests = listData.map((json) => RequestModel.fromMap(json as Map<String, dynamic>)).toList();
 
+      //implemented the date filter through frontend not through the backend.(it filters the selected date on the current page)
+      List<RequestModel> filteredRequests = mappedRequests;
+      if (state.selectedDate != null) {
+        filteredRequests = mappedRequests.where((request) {
+          final requestDateFormatted = DateFormat('yyyy-MM-dd').format(request.date);
+          debugPrint('DEBUG: Filtering - Selected Date: ${state.selectedDate}, Request Date (raw): ${request.date}, Request Date (formatted): $requestDateFormatted, Match: ${requestDateFormatted == state.selectedDate}');
+          return requestDateFormatted == state.selectedDate;
+        }).toList();
+      }
+
       state = state.copyWith(
-        requests: mappedRequests,
+        requests: filteredRequests,
         totalPages: totalPages,
         totalItems: totalItems,
         isLoading: false,
