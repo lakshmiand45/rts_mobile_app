@@ -23,16 +23,13 @@
  */
 
 import 'package:flutter/foundation.dart';
-// ... rest of your imports
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart'; // Added Firebase Core import
-import '../core/services/api_service.dart';
+import 'package:firebase_core/firebase_core.dart';
+import '../core/services/push_notifications_api.dart';
 import 'auth_provider.dart';
 import '../../main.dart'; // Import to access global navigatorKey
 
@@ -41,7 +38,7 @@ import '../../main.dart'; // Import to access global navigatorKey
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   debugPrint('Handling a background message: ${message.messageId}');
   // Ensure Firebase is initialized in its own isolate when handling background messages
-  await Firebase.initializeApp(); 
+  await Firebase.initializeApp();
 
   // For now, just print the message. We'll handle local notifications later.
   debugPrint('Background Message data: ${message.data}');
@@ -49,12 +46,12 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 class PushNotificationNotifier extends StateNotifier<bool> {
   final Ref _ref;
-  final ApiService _apiService;
+  final PushNotificationsApi _pushApi;
   final FirebaseMessaging _firebaseMessaging;
   final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin;
   final GlobalKey<NavigatorState> _navigatorKey;
 
-  PushNotificationNotifier(this._ref, this._apiService, this._navigatorKey)
+  PushNotificationNotifier(this._ref, this._pushApi, this._navigatorKey)
       : _firebaseMessaging = FirebaseMessaging.instance,
         _flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin(),
         super(false);
@@ -82,7 +79,7 @@ class PushNotificationNotifier extends StateNotifier<bool> {
       if (notification != null && android != null) {
         // Define action buttons for Android
         const AndroidNotificationDetails androidPlatformChannelSpecifics =
-            AndroidNotificationDetails(
+        AndroidNotificationDetails(
           'food_reminder_channel', // Must match the channel ID created in _initLocalNotifications
           'Food Reminders',
           channelDescription: 'Notifications for weekly food reminders.',
@@ -95,7 +92,7 @@ class PushNotificationNotifier extends StateNotifier<bool> {
           ],
         );
         const NotificationDetails platformChannelSpecifics =
-            NotificationDetails(android: androidPlatformChannelSpecifics);
+        NotificationDetails(android: androidPlatformChannelSpecifics);
 
         _flutterLocalNotificationsPlugin.show(
           id: notification.hashCode,
@@ -147,11 +144,11 @@ class PushNotificationNotifier extends StateNotifier<bool> {
   // Initialize FlutterLocalNotificationsPlugin
   Future<void> _initLocalNotifications() async {
     const AndroidInitializationSettings initializationSettingsAndroid =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
+    AndroidInitializationSettings('@mipmap/ic_launcher');
 
     // iOS settings (even though we're focusing on Android, keep the structure)
     const DarwinInitializationSettings initializationSettingsDarwin =
-        DarwinInitializationSettings(
+    DarwinInitializationSettings(
       requestAlertPermission: false,
       requestBadgePermission: false,
       requestSoundPermission: false,
@@ -189,9 +186,6 @@ class PushNotificationNotifier extends StateNotifier<bool> {
 
   // Request notification permissions
   Future<void> _requestPermissions() async {
-    // For Android, particularly Android 13 (API level 33) and above,
-    // explicit permission for POST_NOTIFICATIONS is required.
-    // FirebaseMessaging.requestPermission handles this.
     NotificationSettings settings = await _firebaseMessaging.requestPermission(
       alert: true,
       announcement: false,
@@ -203,13 +197,12 @@ class PushNotificationNotifier extends StateNotifier<bool> {
     );
 
     debugPrint('User granted permission: ${settings.authorizationStatus}');
-    // For now, focusing on Android, so no iOS-specific permission handling.
   }
 
   // Register FCM token with your backend
   Future<void> _registerTokenWithBackend(String? fcmToken) async {
     try {
-      final token = fcmToken ?? await _firebaseMessaging.getToken();//FCM token generation
+      final token = fcmToken ?? await _firebaseMessaging.getToken();
       debugPrint("FCM TOKEN: $token");
       if (token == null) {
         debugPrint('FCM Token is null, cannot register.');
@@ -217,21 +210,10 @@ class PushNotificationNotifier extends StateNotifier<bool> {
         return;
       }
 
-      final platform = defaultTargetPlatform == TargetPlatform.android ? 'android' : 'unknown'; // Android-only for now
-      final response = await _apiService.registerFCMToken(
-        fcmToken: token,
-        platform: platform,
-      );
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        debugPrint('FCM Token registered successfully with backend.');
-        _saveTokenLocally(token); // Save token locally after successful registration
-        state = true;
-      } else {
-        debugPrint('Failed to register FCM Token with backend: ${response.statusCode}');
-        debugPrint('Response body: ${response.body}');
-        state = false;
-      }
+      await _pushApi.registerToken(token);
+      debugPrint('FCM Token registered successfully with backend.');
+      _saveTokenLocally(token);
+      state = true;
     } catch (e) {
       debugPrint('Error registering FCM Token with backend: $e');
       state = false;
@@ -243,7 +225,6 @@ class PushNotificationNotifier extends StateNotifier<bool> {
     try {
       String? token = fcmToken ?? await _firebaseMessaging.getToken();
       if (token == null) {
-        // Try to retrieve token from SharedPreferences if current token is null
         final prefs = await SharedPreferences.getInstance();
         final storedToken = prefs.getString('fcm_token');
         if (storedToken == null) {
@@ -254,24 +235,17 @@ class PushNotificationNotifier extends StateNotifier<bool> {
         token = storedToken;
       }
 
-      final response = await _apiService.unregisterFCMToken(fcmToken: token!);
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        debugPrint('FCM Token unregistered successfully from backend.');
-        _removeTokenLocally();
-        state = false;
-      } else {
-        debugPrint('Failed to unregister FCM Token with backend: ${response.statusCode}');
-        debugPrint('Response body: ${response.body}');
-        state = true; // Keep state as true if unregistration failed, token might still be valid
-      }
+      await _pushApi.unregisterToken(token!);
+      debugPrint('FCM Token unregistered successfully from backend.');
+      _removeTokenLocally();
+      state = false;
     } catch (e) {
       debugPrint('Error unregistering FCM Token with backend: $e');
-      state = true; // Keep state as true if unregistration failed
+      state = true;
     }
   }
 
-  // Save the FCM token locally (e.g., in SharedPreferences)
+  // Save the FCM token locally
   Future<void> _saveTokenLocally(String token) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('fcm_token', token);
@@ -285,7 +259,7 @@ class PushNotificationNotifier extends StateNotifier<bool> {
     debugPrint('FCM Token removed locally.');
   }
 
-  // Exposed method to delete token and unregister (e.g., when user disables notifications)
+  // Exposed method to delete token and unregister
   Future<void> deleteAndUnregisterToken() async {
     final token = await _firebaseMessaging.getToken();
     if (token != null) {
@@ -293,9 +267,19 @@ class PushNotificationNotifier extends StateNotifier<bool> {
       await _unregisterTokenWithBackend(token);
     }
   }
+
+  // Method to send a test notification
+  Future<void> sendTestNotification() async {
+    try {
+      await _pushApi.sendTestNotification('Test Title', 'This is a test notification from RTS App');
+      debugPrint('Test notification request sent to backend.');
+    } catch (e) {
+      debugPrint('Error sending test notification: $e');
+    }
+  }
 }
 
 final pushNotificationProvider = StateNotifierProvider<PushNotificationNotifier, bool>((ref) {
-  final apiService = ref.watch(apiServiceProvider);
-  return PushNotificationNotifier(ref, apiService, navigatorKey); // Pass navigatorKey
+  final pushApi = ref.watch(pushNotificationsApiProvider);
+  return PushNotificationNotifier(ref, pushApi, navigatorKey);
 });

@@ -56,20 +56,9 @@ class ApiService {
     }
   }
 
-  // New method for FCM token registration
-  Future<http.Response> registerFCMToken({required String fcmToken, required String platform}) async {
-    return await post('/push/fcm/register', {
-      'fcmToken': fcmToken,
-      'platform': platform,
-    });
-  }
 
-  // New method for FCM token unregistration
-  Future<http.Response> unregisterFCMToken({required String fcmToken}) async {
-    return await post('/push/fcm/unregister', {
-      'fcmToken': fcmToken,
-    });
-  }
+
+
 
   Future<http.Response> patch(String endpoint, Map<String, dynamic> data) async {
     try {
