@@ -79,18 +79,44 @@ class RequestModel {
       : null;
 
   factory RequestModel.fromMap(Map<String, dynamic> map) {
-    String? rawStatus = map['status']?.toString() ?? map['assignedStatus']?.toString();
+    debugPrint('DEBUG: RequestModel.fromMap received map: $map');
+    
+    // Status parsing with multiple fallback keys
+    String? rawStatus = (map['status'] ?? map['assignedStatus'] ?? map['overallStatus'])?.toString();
     RequestStatus status = _parseStatus(rawStatus);
+    
+    // Check all role-based status fields with snake_case fallbacks
+    final rmStatus = _parseStatus(map['rmStatus'] ?? map['rm_status']);
+    final hodStatus = _parseStatus(map['hodStatus'] ?? map['hod_status']);
+    final deptHodStatus = _parseStatus(map['deptHodStatus'] ?? map['dept_hod_status'] ?? map['assignedStatus']);
 
-    bool isActuallyClosed = map['isClosed'] == true || rawStatus?.toLowerCase() == 'fully closed' || rawStatus?.toLowerCase() == 'closed and finalized';
+    // Checking Details with snake_case fallbacks
+    DateTime? extractedDeadline = _parseDateNullable(map['checkingDeadline'] ?? map['checking_deadline']);
+    String? extractedReason = (map['checkingDeadlineReason'] ?? map['checking_deadline_reason'])?.toString();
+
+    // If any role-based status is checking, or we have a deadline, and the overall status is not finalized, set to checking
+    if (status != RequestStatus.closed && 
+        status != RequestStatus.resolved && 
+        status != RequestStatus.rejected && 
+        (rmStatus == RequestStatus.checking || 
+         hodStatus == RequestStatus.checking || 
+         deptHodStatus == RequestStatus.checking ||
+         extractedDeadline != null)) {
+      status = RequestStatus.checking;
+    }
+
+    bool isActuallyClosed = map['isClosed'] == true || 
+                            rawStatus?.toLowerCase() == 'fully closed' || 
+                            rawStatus?.toLowerCase() == 'closed and finalized' ||
+                            rawStatus?.toLowerCase() == 'closed';
 
     if (isActuallyClosed) {
       status = RequestStatus.closed;
-    } else if (rawStatus?.toLowerCase() == 'closed' || rawStatus?.toLowerCase().contains('acknowledgement') == true) {
+    } else if (rawStatus?.toLowerCase().contains('acknowledgement') == true || rawStatus?.toLowerCase() == 'resolved') {
       status = RequestStatus.resolved;
     }
 
-    // Extraction for Resolution details based on Bruno response
+    // Extraction for Resolution details
     String? resNote;
     dynamic rawUrl;
     String? fileName;
@@ -111,7 +137,7 @@ class RequestModel {
       }
     }
 
-    // Fallbacks
+    // Fallbacks for files
     if (map['fileUrls'] is List) {
       multiUrls ??= (map['fileUrls'] as List).map((e) => _normalizeUrl(e) ?? '').where((e) => e.isNotEmpty).toList();
     }
@@ -120,81 +146,81 @@ class RequestModel {
     }
 
     List<String>? depts;
-    if (map['assignedDept'] != null) {
-      if (map['assignedDept'] is List) {
-        depts = List<String>.from(map['assignedDept']);
+    final rawDept = map['assignedDept'] ?? map['assigned_dept'];
+    if (rawDept != null) {
+      if (rawDept is List) {
+        depts = List<String>.from(rawDept);
       } else {
-        depts = [map['assignedDept'].toString()];
+        depts = [rawDept.toString()];
       }
     }
 
     List<String>? persons;
-    if (map['assignedPersonName'] != null) {
-      if (map['assignedPersonName'] is List) {
-        persons = List<String>.from(map['assignedPersonName']);
+    final rawPerson = map['assignedPersonName'] ?? map['assigned_person'];
+    if (rawPerson != null) {
+      if (rawPerson is List) {
+        persons = List<String>.from(rawPerson);
       } else {
-        persons = [map['assignedPersonName'].toString()];
+        persons = [rawPerson.toString()];
       }
     }
 
-    // Checking Details
-    DateTime? extractedDeadline = _parseDateNullable(map['checkingDeadline'] ?? map['checking_deadline']);
-    String? extractedReason = (map['checkingDeadlineReason'] ?? map['checking_deadline_reason'])?.toString();
-
-    // Deep Search for missed details
-    void deepSearch(dynamic data) {
-      if (data is Map) {
-        for (var entry in data.entries) {
-          final val = entry.value;
-          if (val is String && val.contains('DEADLINE:')) {
-            try {
-              final String deadlinePart = val.split('DEADLINE:')[1].split('|')[0].trim();
-              final List<String> dateParts = deadlinePart.split('/');
-              if (dateParts.length == 3) {
-                extractedDeadline ??= DateTime(int.parse(dateParts[2]), int.parse(dateParts[0]), int.parse(dateParts[1]));
+    // Deep Search for missed details in activity logs if still missing
+    if (extractedDeadline == null) {
+      void deepSearch(dynamic data) {
+        if (data is Map) {
+          for (var entry in data.entries) {
+            final val = entry.value;
+            if (val is String && val.contains('DEADLINE:')) {
+              try {
+                final String deadlinePart = val.split('DEADLINE:')[1].split('|')[0].trim();
+                final List<String> dateParts = deadlinePart.split('/');
+                if (dateParts.length == 3) {
+                  extractedDeadline ??= DateTime(int.parse(dateParts[2]), int.parse(dateParts[0]), int.parse(dateParts[1]));
+                }
+              } catch (_) {}
+              if (val.contains('PLAN:')) {
+                extractedReason ??= val.split('PLAN:')[1].trim();
               }
-            } catch (_) {}
-            if (val.contains('PLAN:')) {
-              extractedReason ??= val.split('PLAN:')[1].trim();
             }
+            if (val is Map || val is List) deepSearch(val);
           }
-          if (val is Map || val is List) deepSearch(val);
+        } else if (data is List) {
+          for (var item in data) deepSearch(item);
         }
-      } else if (data is List) {
-        for (var item in data) deepSearch(item);
       }
+      deepSearch(map);
     }
-    deepSearch(map);
 
     return RequestModel(
       id: map['id']?.toString() ?? '',
       slNo: map['slNo']?.toString() ?? map['id']?.toString() ?? '',
-      date: _parseDate(map['date']),
-      userId: map['userId']?.toString() ?? '',
-      empId: map['empId']?.toString() ?? '',
-      userName: map['name']?.toString() ?? '',
-      department: map['dept']?.toString() ?? '',
+      date: _parseDate(map['date'] ?? map['created_at']),
+      userId: map['userId']?.toString() ?? map['user_id']?.toString() ?? '',
+      empId: map['empId']?.toString() ?? map['emp_id']?.toString() ?? '',
+      userName: map['name']?.toString() ?? map['user_name']?.toString() ?? '',
+      department: map['dept']?.toString() ?? map['department']?.toString() ?? '',
       designation: map['designation']?.toString() ?? '',
       location: map['location']?.toString() ?? '',
-      title: map['purpose'] ?? '',
+      title: map['purpose'] ?? map['title'] ?? '',
       description: map['description'] ?? '',
-      rmStatus: _parseStatus(map['rmStatus']),
-      rmStatusDate: _parseDateNullable(map['rmDate']),
-      hodStatus: _parseStatus(map['hodStatus']),
-      hodStatusDate: _parseDateNullable(map['hodDate']),
-      assignedHodStatus: _parseStatus(map['deptHodStatus']),
-      assignedHodStatusDate: _parseDateNullable(map['deptHodDate']),
+      rmStatus: rmStatus,
+      rmStatusDate: _parseDateNullable(map['rmDate'] ?? map['rm_date']),
+      hodStatus: hodStatus,
+      hodStatusDate: _parseDateNullable(map['hodDate'] ?? map['hod_date']),
+      assignedHodStatus: deptHodStatus,
+      assignedHodStatusDate: _parseDateNullable(map['deptHodDate'] ?? map['dept_hod_date']),
       assignedDepartments: depts,
       assignedPersons: persons,
-      dueDate: _parseDateNullable(map['dueDate']),
+      dueDate: _parseDateNullable(map['dueDate'] ?? map['due_date']),
       checkingDeadline: extractedDeadline,
       checkingDeadlineReason: extractedReason,
       overallStatus: status,
-      overallStatusDate: _parseDateNullable(map['resolvedDate']),
-      isRead: map['seen'] ?? false,
+      overallStatusDate: _parseDateNullable(map['resolvedDate'] ?? map['updated_at']),
+      isRead: map['seen'] ?? map['is_read'] ?? false,
       unreadChatCount: 0,
-      attachedFileName: fileName,
-      attachedFileUrl: _normalizeUrl(rawUrl),
+      attachedFileName: fileName ?? map['fileName'],
+      attachedFileUrl: _normalizeUrl(rawUrl ?? map['fileUrl']),
       resolutionNote: resNote,
       fileUrls: multiUrls,
       fileNames: multiNames,
@@ -247,6 +273,7 @@ class RequestModel {
     if (s == 'closed') return RequestStatus.closed;
     if (s == 'resolved') return RequestStatus.resolved;
     if (s.contains('acknowledgement')) return RequestStatus.resolved;
+    if (s.contains('checking')) return RequestStatus.checking;
 
     return RequestStatus.values.firstWhere(
           (e) => e.name.toLowerCase() == s,

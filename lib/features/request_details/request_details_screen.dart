@@ -77,7 +77,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
     );
   }
 
-  Future<void> _updateTicketStatus(RequestStatus status, {String? resolutionNote}) async {
+  Future<bool> _updateTicketStatus(RequestStatus status, {String? resolutionNote}) async {
     final authState = ref.read(authProvider);
     final user = authState.user;
     final role = user?.role.toUpperCase();
@@ -129,6 +129,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Action failed. Please check if you have permission.'), backgroundColor: Colors.red));
       }
     }
+    return success;
   }
 
   Future<void> _forwardTicket() async {

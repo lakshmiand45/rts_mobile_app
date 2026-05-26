@@ -790,6 +790,28 @@ class _RequestCard extends ConsumerWidget {
                       Text(request.department, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B))),
                       Text(request.designation, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B))),
                       Text(request.location, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+                      if (request.overallStatus == RequestStatus.checking && request.checkingDeadline != null) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFFBEB),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: const Color(0xFFFEF3C7)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.access_time, size: 12, color: Color(0xFFF59E0B)),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Checking until ${DateFormat('dd/MM/yyyy').format(request.checkingDeadline!)}',
+                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF92400E)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                       if (showAwaitingText) ...[
                         const SizedBox(height: 8),
                         const Text(
