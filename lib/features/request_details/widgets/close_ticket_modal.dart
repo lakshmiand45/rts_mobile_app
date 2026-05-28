@@ -18,16 +18,44 @@ class _CloseTicketModalState extends ConsumerState<CloseTicketModal> {
   PlatformFile? pickedFile;
   bool _isSubmitting = false;
 
+  // Expanded extensions to handle case-sensitivity and system categorization issues
+  final List<String> _allowedExtensions = [
+    'jpg', 'jpeg', 'png', 'pdf', 'docx', 'xlsx', 'xls', 'csv', 'zip', 'mp3', 'wav', 'm4a'
+  ];
+
   Future<void> _pickFile() async {
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(withData: true);
+      // Using FileType.any to ensure CSV/ZIP and other files are selectable on all Android devices.
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        withData: true,
+      );
       if (result != null) {
-        setState(() {
-          pickedFile = result.files.first;
-        });
+        final file = result.files.first;
+        final ext = file.extension?.toLowerCase();
+        
+        if (ext != null && _allowedExtensions.contains(ext)) {
+          setState(() {
+            pickedFile = file;
+          });
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Selected file format is not supported.'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+        }
       }
     } catch (e) {
       debugPrint('Error picking file: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error selecting file: $e')),
+        );
+      }
     }
   }
 
@@ -158,6 +186,11 @@ class _CloseTicketModalState extends ConsumerState<CloseTicketModal> {
                             fontWeight: FontWeight.bold,
                             color: pickedFile != null ? const Color(0xFF1E293B) : Colors.grey,
                           ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Supported: JPG, PNG, PDF, Docx, XLSX, CSV, ZIP, Audio',
+                          style: TextStyle(fontSize: 8, color: Color(0xFF5C59E8), fontWeight: FontWeight.w500),
                         ),
                       ],
                     ),
