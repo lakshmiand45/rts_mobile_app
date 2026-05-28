@@ -30,14 +30,17 @@ class _AddRequestModalState extends ConsumerState<AddRequestModal> {
     'System admin', 'Technical Support','Game Development'
   ];
 
-  // Priority Logic (Frontend Only)
+  // Expanded extensions to handle case-sensitivity and system categorization issues
+  final List<String> _allowedExtensions = [
+    'jpg', 'jpeg', 'png', 'pdf', 'docx', 'xlsx', 'xls', 'csv', 'zip', 'mp3', 'wav', 'm4a'
+  ];
+
   String get _priority {
     if (selectedDueDate == null) return '';
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final selected = DateTime(selectedDueDate!.year, selectedDueDate!.month, selectedDueDate!.day);
     final difference = selected.difference(today).inDays;
-
     if (difference <= 7) return 'High';
     if (difference <= 15) return 'Medium';
     return 'Low';
@@ -60,20 +63,48 @@ class _AddRequestModalState extends ConsumerState<AddRequestModal> {
     return '$difference days remaining';
   }
 
-
   Future<void> _pickFile() async {
     try {
+      // Using FileType.any for better compatibility on physical devices where CSV/ZIP
+      // might not be correctly mapped to a MIME type by the system File Picker.
+      // We filter the results manually after selection.
       FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
         withData: true,
         allowMultiple: true,
       );
+
       if (result != null) {
-        setState(() {
-          pickedFiles.addAll(result.files);
-        });
+        final filteredFiles = result.files.where((file) {
+          if (file.extension == null) return false;
+          final ext = file.extension!.toLowerCase();
+          return _allowedExtensions.contains(ext);
+        }).toList();
+
+        if (filteredFiles.length < result.files.length) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Some files were ignored because they are not in the supported formats.'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+        }
+
+        if (filteredFiles.isNotEmpty) {
+          setState(() {
+            pickedFiles.addAll(filteredFiles);
+          });
+        }
       }
     } catch (e) {
       debugPrint('Error picking file: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error selecting file: $e')),
+        );
+      }
     }
   }
 
@@ -85,8 +116,7 @@ class _AddRequestModalState extends ConsumerState<AddRequestModal> {
 
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: selectedDueDate ?? DateTime.now().add(const Duration(days: 1)),
+      context: context, initialDate: selectedDueDate ?? DateTime.now().add(const Duration(days: 1)),
       firstDate: DateTime.now(),
       lastDate: DateTime(2101),
       builder: (context, child) {
@@ -209,21 +239,15 @@ class _AddRequestModalState extends ConsumerState<AddRequestModal> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'ADD NEW REQUEST',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF1E293B)),
-                  ),
+                  const Text('ADD NEW REQUEST', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF1E293B))),
                   IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close )),
                 ],
               ),
               const Divider(),
               const SizedBox(height: 16),
-
-              // Request Title
               const Text('REQUEST TITLE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
               const SizedBox(height: 8),
               TextField(
@@ -239,15 +263,9 @@ class _AddRequestModalState extends ConsumerState<AddRequestModal> {
                 ),
               ),
               const SizedBox(height: 16),
-
-              // Your Department (Auto-filled & Read-only)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                ),
+                decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE2E8F0))),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -257,76 +275,44 @@ class _AddRequestModalState extends ConsumerState<AddRequestModal> {
                 ),
               ),
               const SizedBox(height: 16),
-
-              // Assign to Department (Single-select)
               const Text('ASSIGN TO DEPARTMENT', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
               const SizedBox(height: 8),
               InkWell(
-                onTap: () => _showSingleSelect(
-                  title: 'Department',
-                  options: _departments,
-                  selected: selectedDepartment,
-                  onSelected: (val) => setState(() => selectedDepartment = val),
-                ),
+                onTap: () => _showSingleSelect(title: 'Department', options: _departments, selected: selectedDepartment, onSelected: (val) => setState(() => selectedDepartment = val)),
                 child: Container(
                   padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
+                  decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE2E8F0))),
                   child: Row(
                     children: [
-                      Expanded(
-                        child: Text(
-                          selectedDepartment ?? 'Select Department',
-                          style: TextStyle(fontSize: 13, color: selectedDepartment == null ? Colors.grey : const Color(0xFF1E293B)),
-                        ),
-                      ),
+                      Expanded(child: Text(selectedDepartment ?? 'Select Department', style: TextStyle(fontSize: 13, color: selectedDepartment == null ? Colors.grey : const Color(0xFF1E293B)))),
                       const Icon(Icons.keyboard_arrow_down, color: Colors.grey),
                     ],
                   ),
                 ),
               ),
               const SizedBox(height: 16),
-
-              // Due Date Picker
               const Text('REQUIRED BY (DUE DATE) — OPTIONAL', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
               const SizedBox(height: 8),
               InkWell(
                 onTap: () => _selectDate(context),
                 child: Container(
                   padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
+                  decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE2E8F0))),
                   child: Row(
                     children: [
                       const Icon(Icons.calendar_today_outlined, size: 18, color: Colors.grey),
                       const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          selectedDueDate == null ? 'Select Date' : DateFormat('dd MMM yyyy').format(selectedDueDate!),
-                          style: TextStyle(fontSize: 13, color: selectedDueDate == null ? Colors.grey : const Color(0xFF1E293B)),
-                        ),
-                      ),
+                      Expanded(child: Text(selectedDueDate == null ? 'Select Date' : DateFormat('dd MMM yyyy').format(selectedDueDate!), style: TextStyle(fontSize: 13, color: selectedDueDate == null ? Colors.grey : const Color(0xFF1E293B)))),
                       const Icon(Icons.keyboard_arrow_down, color: Colors.grey),
                     ],
                   ),
                 ),
               ),
-
-              // Priority Display
               if (selectedDueDate != null) ...[
                 const SizedBox(height: 12),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: _priorityColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+                  decoration: BoxDecoration(color: _priorityColor.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
                   child: Row(
                     children: [
                       Icon(Icons.warning_amber_rounded, size: 16, color: _priorityColor),
@@ -339,8 +325,6 @@ class _AddRequestModalState extends ConsumerState<AddRequestModal> {
                 ),
               ],
               const SizedBox(height: 16),
-
-              // Request Description
               const Text('REQUEST DESCRIPTION', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
               const SizedBox(height: 8),
               TextField(
@@ -356,8 +340,6 @@ class _AddRequestModalState extends ConsumerState<AddRequestModal> {
                 ),
               ),
               const SizedBox(height: 16),
-
-              // File Upload
               const Text('ATTACH FILES (OPTIONAL)', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
               const SizedBox(height: 8),
               DottedBorder(
@@ -373,15 +355,13 @@ class _AddRequestModalState extends ConsumerState<AddRequestModal> {
                     padding: const EdgeInsets.symmetric(vertical: 24),
                     child: Column(
                       children: [
-                        Icon(
-                          Icons.upload_outlined,
-                          color: Colors.grey[400],
-                          size: 28,
-                        ),
+                        Icon(Icons.upload_outlined, color: Colors.grey[400], size: 28),
                         const SizedBox(height: 8),
+                        const Text('CLICK TO UPLOAD FILES', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+                        const SizedBox(height: 4),
                         const Text(
-                          'CLICK TO UPLOAD FILES',
-                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey),
+                          'Supported: JPG, PNG, PDF, Docx, XLSX, CSV, ZIP, MP3, WAV, M4A',
+                          style: TextStyle(fontSize: 8, color: Color(0xFF5C59E8), fontWeight: FontWeight.w500),
                         ),
                       ],
                     ),
@@ -399,27 +379,13 @@ class _AddRequestModalState extends ConsumerState<AddRequestModal> {
                     final file = pickedFiles[index];
                     return Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
+                      decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(8)),
                       child: Row(
                         children: [
                           const Icon(Icons.insert_drive_file, size: 16, color: Color(0xFF5C59E8)),
                           const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              file.name,
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () => _removeFile(index),
-                            icon: const Icon(Icons.close, size: 16, color: Colors.red),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                          ),
+                          Expanded(child: Text(file.name, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500), overflow: TextOverflow.ellipsis)),
+                          IconButton(onPressed: () => _removeFile(index), icon: const Icon(Icons.close, size: 16, color: Colors.red), padding: EdgeInsets.zero, constraints: const BoxConstraints()),
                         ],
                       ),
                     );
@@ -427,41 +393,11 @@ class _AddRequestModalState extends ConsumerState<AddRequestModal> {
                 ),
               ],
               const SizedBox(height: 24),
-
-              // Buttons
               Row(
                 children: [
-                  Expanded(
-                    child: SizedBox(
-                      height: 48,
-                      child: ElevatedButton(
-                        onPressed: () => Navigator.pop(context),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFE2E8F0),
-                          foregroundColor: const Color(0xFF475569),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          elevation: 0,
-                        ),
-                        child: const Text('Close', style: TextStyle(fontWeight: FontWeight.bold)),
-                      ),
-                    ),
-                  ),
+                  Expanded(child: SizedBox(height: 48, child: ElevatedButton(onPressed: () => Navigator.pop(context), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFE2E8F0), foregroundColor: const Color(0xFF475569), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), elevation: 0), child: const Text('Close', style: TextStyle(fontWeight: FontWeight.bold))))),
                   const SizedBox(width: 16),
-                  Expanded(
-                    child: SizedBox(
-                      height: 48,
-                      child: ElevatedButton(
-                        onPressed: _submit,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF10B981),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          elevation: 0,
-                        ),
-                        child: const Text('Submit', style: TextStyle(fontWeight: FontWeight.bold)),
-                      ),
-                    ),
-                  ),
+                  Expanded(child: SizedBox(height: 48, child: ElevatedButton(onPressed: _submit, style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), elevation: 0), child: const Text('Submit', style: TextStyle(fontWeight: FontWeight.bold))))),
                 ],
               ),
             ],
