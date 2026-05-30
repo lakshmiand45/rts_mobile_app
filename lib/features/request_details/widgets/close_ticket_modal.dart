@@ -20,42 +20,24 @@ class _CloseTicketModalState extends ConsumerState<CloseTicketModal> {
 
   // Expanded extensions to handle case-sensitivity and system categorization issues
   final List<String> _allowedExtensions = [
-    'jpg', 'jpeg', 'png', 'pdf', 'docx', 'xlsx', 'xls', 'csv', 'zip', 'mp3', 'wav', 'm4a'
+    'jpg', 'jpeg', 'png', 'pdf', 'docx', 'xlsx', 'csv', 'mp3', 'wav', 'm4a',
+    'JPG', 'JPEG', 'PNG', 'PDF', 'DOCX', 'XLSX', 'CSV', 'MP3', 'WAV', 'M4A'
   ];
 
   Future<void> _pickFile() async {
     try {
-      // Using FileType.any to ensure CSV/ZIP and other files are selectable on all Android devices.
       FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.any,
+        type: FileType.custom,
+        allowedExtensions: _allowedExtensions,
         withData: true,
       );
       if (result != null) {
-        final file = result.files.first;
-        final ext = file.extension?.toLowerCase();
-        
-        if (ext != null && _allowedExtensions.contains(ext)) {
-          setState(() {
-            pickedFile = file;
-          });
-        } else {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Selected file format is not supported.'),
-                backgroundColor: Colors.orange,
-              ),
-            );
-          }
-        }
+        setState(() {
+          pickedFile = result.files.first;
+        });
       }
     } catch (e) {
       debugPrint('Error picking file: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error selecting file: $e')),
-        );
-      }
     }
   }
 
@@ -71,8 +53,10 @@ class _CloseTicketModalState extends ConsumerState<CloseTicketModal> {
     setState(() => _isSubmitting = true);
 
     try {
+      // Calling closeTicket which sends data to the backend.
+      // The requirement states that after roles "close" it, it should show as "Resolved".
       final success = await ref.read(requestProvider.notifier).closeTicket(
-        widget.ticketId, 
+        widget.ticketId,
         note,
         filePath: kIsWeb ? null : pickedFile?.path,
         fileBytes: pickedFile?.bytes,
@@ -189,7 +173,7 @@ class _CloseTicketModalState extends ConsumerState<CloseTicketModal> {
                         ),
                         const SizedBox(height: 8),
                         const Text(
-                          'Supported: JPG, PNG, PDF, Docx, XLSX, CSV, ZIP, Audio',
+                          'Supported: JPG, PNG, PDF, Docx, XLSX, CSV, Audio',
                           style: TextStyle(fontSize: 8, color: Color(0xFF5C59E8), fontWeight: FontWeight.w500),
                         ),
                       ],

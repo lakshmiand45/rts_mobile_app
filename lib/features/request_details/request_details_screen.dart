@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/widgets/status_badge.dart';
 import '../../models/request_model.dart';
 import '../../models/chat_model.dart';
@@ -98,7 +99,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
     bool success = false;
     String message = 'Status updated successfully';
 
-    if (isUserRequestor && (status == RequestStatus.closed || status == RequestStatus.pending)) {
+    if (isUserRequestor && (status == RequestStatus.closed || status == RequestStatus.open)) {
       final String acknowledgeStatus = (status == RequestStatus.closed) ? 'Received' : 'Not Received';
       success = await ref.read(requestProvider.notifier).acknowledgeRequest(currentTicket.id, acknowledgeStatus);
       message = (status == RequestStatus.closed) ? 'Ticket confirmed and closed' : 'Reported as not received';
@@ -165,6 +166,12 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
                   title: Text(fileName),
                   automaticallyImplyLeading: false,
                   actions: [
+                    if (url != null)
+                      IconButton(
+                        onPressed: () => _downloadFile(url),
+                        icon: const Icon(Icons.download),
+                        tooltip: 'Download',
+                      ),
                     IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
                   ],
                 ),
@@ -177,21 +184,36 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
               ],
             ),
           ),
+          
         ),
       );
     }
   }
 
+  Future<void> _downloadFile(String url) async {
+    final Uri uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not download file'), backgroundColor: Colors.red));
+      }
+    }
+  }
+//this widget _buildPreviewWidget is used to preview the
   Widget _buildPreviewWidget(RequestModel ticket, {String? customUrl, String? customName}) {
     final fileName = (customName ?? ticket.attachedFileName ?? '').toLowerCase();
     final url = customUrl ?? ticket.attachedFileUrl;
 
-    if (fileName.endsWith('.jpg') || fileName.endsWith('.jpeg') || fileName.endsWith('.png') || fileName.endsWith('.gif')) {
+    if (fileName.endsWith('.jpg') || fileName.endsWith('.jpeg') || fileName.endsWith('.png') || fileName.endsWith('.gif') || fileName.endsWith('.webp')) {
       if (url != null && url.isNotEmpty) {
         return Image.network(
           url,
           fit: BoxFit.contain,
-          errorBuilder: (context, error, stackTrace) => const Center(child: Text('Failed to load image from server')),
+          errorBuilder: (context, error, stackTrace) {
+            print('Failed to load image from server. URL: $url, Error: $error');
+            return const Center(child: Text('Failed to load image from server'));
+          },
         );
       } else if (kIsWeb && ticket.attachedFileBytes != null) {
         return Image.memory(ticket.attachedFileBytes!, fit: BoxFit.contain);
@@ -209,6 +231,18 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
           Text('Preview not available for this file type.', style: TextStyle(color: Colors.grey[600])),
           const SizedBox(height: 8),
           Text(customName ?? ticket.attachedFileName ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
+          if (url != null) ...[
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: () => _downloadFile(url),
+              icon: const Icon(Icons.download),
+              label: const Text('Download File'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF5C59E8),
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -251,16 +285,12 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
         currentTicket.assignedDepartments!.map((e) => e.toLowerCase()).contains(user.department.toLowerCase());
 
     final bool buttonsEnabled = (isAuthorizedRole || isOtherDepartmentHandler) && !isClosed && !isResolved;
-    final bool showAdminSection = (isAuthorizedRole || isOtherDepartmentHandler) && !isClosed && !isResolved;
     final bool canForward = isAuthorizedRole && !isClosed && !isResolved; // Only existing authorized roles can forward
     final bool isForwarding = selectedDept != null && selectedDept != currentTicket.assignedDepartment;
     final bool canCloseTicket = ((role == 'DEPTHOD' || role == 'ADMIN' || role == 'MANAGEMENT') || isOtherDepartmentHandler) && !isClosed && !isResolved;
 
-    final bool showRequestorActions = isUserRequestor && !isClosed &&
-        (isResolved ||
-            (currentTicket.assignedHodStatus != RequestStatus.pending &&
-                currentTicket.assignedHodStatus != RequestStatus.open &&
-                currentTicket.assignedHodStatus != RequestStatus.checking));
+    // strictly show when status is Resolved for requestor
+    final bool showRequestorActions = isUserRequestor && isResolved;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
@@ -388,6 +418,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
             _AttachmentsSection(
               ticket: currentTicket,
               onPreview: (url, name) => _previewDocument(currentTicket!, customUrl: url, customName: name),
+              onDownload: _downloadFile,
             ),
 
             const SizedBox(height: 32),
@@ -479,8 +510,8 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
                           const Text('CHECKING DEADLINE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFFB45309))),
                           const SizedBox(height: 4),
                           Text(DateFormat('d/M/yyyy').format(currentTicket.checkingDeadline!), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF92400E))),
-                          if (currentTicket.checkingDeadlineReason != null && currentTicket.checkingDeadlineReason!.isNotEmpty)
-                            Padding(padding: const EdgeInsets.only(top: 4), child: Text(currentTicket.checkingDeadlineReason!, style: const TextStyle(fontSize: 12, color: Color(0xFF92400E)))),
+                          if (currentTicket.checkingReason != null && currentTicket.checkingReason!.isNotEmpty)
+                            Padding(padding: const EdgeInsets.only(top: 4), child: Text(currentTicket.checkingReason!, style: const TextStyle(fontSize: 12, color: Color(0xFF92400E)))),
                         ],
                       ),
                     ),
@@ -508,9 +539,9 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
               const SizedBox(height: 16),
               Row(
                 children: [
-                  Expanded(child: _buildActionButton('RECEIVED', const Color(0xFF10B981), Icons.check_circle_outline, () => _updateTicketStatus(RequestStatus.closed))),
+                  Expanded(child: _buildActionButton('RESOLVED', const Color(0xFF10B981), Icons.check_circle_outline, () => _updateTicketStatus(RequestStatus.closed))),
                   const SizedBox(width: 12),
-                  Expanded(child: _buildActionButton('NOT RECEIVED', const Color(0xFFEF4444), Icons.cancel_outlined, () => _updateTicketStatus(RequestStatus.pending))),
+                  Expanded(child: _buildActionButton('NOT RESOLVED', const Color(0xFFEF4444), Icons.cancel_outlined, () => _updateTicketStatus(RequestStatus.open))),
                 ],
               ),
             ],
@@ -590,8 +621,9 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
 class _AttachmentsSection extends StatelessWidget {
   final RequestModel ticket;
   final Function(String url, String name) onPreview;
+  final Function(String url) onDownload;
 
-  const _AttachmentsSection({required this.ticket, required this.onPreview});
+  const _AttachmentsSection({required this.ticket, required this.onPreview, required this.onDownload});
 
   bool _isImage(String fileName) {
     final lowerCaseFileName = fileName.toLowerCase();
@@ -627,20 +659,35 @@ class _AttachmentsSection extends StatelessWidget {
   }
 
   Widget _buildAttachmentItem(BuildContext context, String url, String name) {
-    return InkWell(
-      onTap: () => onPreview(url, name),
-      child: Container(
-        width: double.infinity, padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(color: const Color(0xFFF8FAFC), border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(8)),
-        child: Row(
-          children: [
-            _isImage(name)
-                ? ClipRRect(borderRadius: BorderRadius.circular(4), child: Image.network(url, width: 40, height: 40, fit: BoxFit.cover, errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 40, color: Colors.red)))
-                : const Icon(Icons.insert_drive_file, color: Color(0xFF5C59E8), size: 20),
-            const SizedBox(width: 8),
-            Expanded(child: Text(name, style: const TextStyle(color: Color(0xFF5C59E8), fontWeight: FontWeight.bold, decoration: TextDecoration.underline, fontSize: 12), overflow: TextOverflow.ellipsis, maxLines: 1)),
-          ],
-        ),
+    return Container(
+      width: double.infinity, padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(color: const Color(0xFFF8FAFC), border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(8)),
+      child: Row(
+        children: [
+          InkWell(
+            onTap: () => onPreview(url, name),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _isImage(name)
+                    ? ClipRRect(borderRadius: BorderRadius.circular(4), child: Image.network(url, width: 40, height: 40, fit: BoxFit.cover, errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 40, color: Colors.red)))
+                    : const Icon(Icons.insert_drive_file, color: Color(0xFF5C59E8), size: 20),
+                const SizedBox(width: 8),
+              ],
+            ),
+          ),
+          Expanded(
+            child: InkWell(
+              onTap: () => onPreview(url, name),
+              child: Text(name, style: const TextStyle(color: Color(0xFF5C59E8), fontWeight: FontWeight.bold, decoration: TextDecoration.underline, fontSize: 12), overflow: TextOverflow.ellipsis, maxLines: 1),
+            ),
+          ),
+          IconButton(
+            onPressed: () => onDownload(url),
+            icon: const Icon(Icons.download_rounded, color: Color(0xFF5C59E8), size: 20),
+            tooltip: 'Download',
+          ),
+        ],
       ),
     );
   }
@@ -659,6 +706,10 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
   bool _isChatLoading = true;
   bool _isSending = false;
   PlatformFile? _stagedFile;
+
+  final List<String> _allowedExtensions = [
+    'jpg', 'jpeg', 'png', 'pdf', 'docx', 'xlsx', 'csv', 'mp3', 'wav', 'm4a'
+  ];
 
   @override
   void initState() {
@@ -679,7 +730,11 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
 
   Future<void> _pickFile() async {
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(withData: true);
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: _allowedExtensions,
+        withData: true,
+      );
       if (result != null) setState(() => _stagedFile = result.files.single);
     } catch (e) { debugPrint('Error picking file: $e'); }
   }
@@ -699,6 +754,17 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
         if (newMessage != null) {
           setState(() { _chatMessages.add(newMessage!); _messageController.clear(); _stagedFile = null; });
         }
+      }
+    }
+  }
+
+  Future<void> _downloadFile(String url) async {
+    final Uri uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not download file'), backgroundColor: Colors.red));
       }
     }
   }
@@ -798,12 +864,26 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
                       if (isClosureMessage) Text(chat.text!, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isMe ? Colors.white : Colors.black))
                       else if (chat.text != null && chat.text!.isNotEmpty) Text(chat.text!, style: TextStyle(fontSize: 12, color: isMe ? Colors.white : Colors.black)),
                       if (chat.fileUrl != null || (isClosureMessage && ticket.attachedFileUrl != null))
-                        InkWell(
-                          onTap: () => _previewChatAttachment(chat),
-                          child: Container(
-                            margin: const EdgeInsets.only(top: 8), padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.white.withOpacity(0.4), borderRadius: BorderRadius.circular(8)),
-                            child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.insert_drive_file, size: 16, color: isMe ? Colors.white : const Color(0xFF5C59E8)), const SizedBox(width: 8), Flexible(child: Text(chat.fileName ?? ticket.attachedFileName ?? 'Attachment', style: TextStyle(fontSize: 11, color: isMe ? Colors.white : const Color(0xFF5C59E8), decoration: TextDecoration.underline), overflow: TextOverflow.ellipsis))]),
-                          ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: InkWell(
+                                onTap: () => _previewChatAttachment(chat),
+                                child: Container(
+                                  margin: const EdgeInsets.only(top: 8), padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.white.withOpacity(0.4), borderRadius: BorderRadius.circular(8)),
+                                  child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.insert_drive_file, size: 16, color: isMe ? Colors.white : const Color(0xFF5C59E8)), const SizedBox(width: 8), Flexible(child: Text(chat.fileName ?? ticket.attachedFileName ?? 'Attachment', style: TextStyle(fontSize: 11, color: isMe ? Colors.white : const Color(0xFF5C59E8), decoration: TextDecoration.underline), overflow: TextOverflow.ellipsis))]),
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: () => _downloadFile(chat.fileUrl ?? ticket.attachedFileUrl!),
+                              icon: Icon(Icons.download_rounded, size: 18, color: isMe ? Colors.white70 : const Color(0xFF5C59E8)),
+                              padding: const EdgeInsets.only(top: 8, left: 4),
+                              constraints: const BoxConstraints(),
+                              tooltip: 'Download',
+                            ),
+                          ],
                         ),
                     ],
                   ),
@@ -827,7 +907,18 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                AppBar(title: Text(chat.fileName ?? 'Attachment Preview'), automaticallyImplyLeading: false, actions: [IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close))]),
+                AppBar(
+                  title: Text(chat.fileName ?? 'Attachment Preview'),
+                  automaticallyImplyLeading: false,
+                  actions: [
+                    IconButton(
+                      onPressed: () => _downloadFile(chat.fileUrl!),
+                      icon: const Icon(Icons.download),
+                      tooltip: 'Download',
+                    ),
+                    IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+                  ],
+                ),
                 Expanded(child: Padding(padding: const EdgeInsets.all(16.0), child: _buildChatAttachmentPreview(chat))),
               ],
             ),
@@ -840,9 +931,30 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
   Widget _buildChatAttachmentPreview(ChatModel chat) {
     final fileName = chat.fileName?.toLowerCase() ?? '';
     final url = chat.fileUrl ?? '';
-    if (fileName.endsWith('.jpg') || fileName.endsWith('.jpeg') || fileName.endsWith('.png') || fileName.endsWith('.gif')) {
-      return Image.network(url, fit: BoxFit.contain, errorBuilder: (context, error, stackTrace) => const Center(child: Text('Failed to load image')), loadingBuilder: (context, child, loadingProgress) => loadingProgress == null ? child : const Center(child: CircularProgressIndicator()));
+    if (fileName.endsWith('.jpg') || fileName.endsWith('.jpeg') || fileName.endsWith('.png') || fileName.endsWith('.gif') || fileName.endsWith('.webp')) {
+      return Image.network(url, fit: BoxFit.contain, errorBuilder: (context, error, stackTrace) {
+        print('Failed to load chat attachment image. URL: $url, Error: $error');
+        return const Center(child: Text('Failed to load image'));
+      }, loadingBuilder: (context, child, loadingProgress) => loadingProgress == null ? child : const Center(child: CircularProgressIndicator()));
     }
-    return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [const Icon(Icons.insert_drive_file, size: 64, color: Colors.grey), const SizedBox(height: 16), Text('Preview not available for this file type.', style: TextStyle(color: Colors.grey[600])), const SizedBox(height: 8), Text(chat.fileName ?? '', style: const TextStyle(fontWeight: FontWeight.bold))]));
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.insert_drive_file, size: 64, color: Colors.grey),
+          const SizedBox(height: 16),
+          Text('Preview not available for this file type.', style: TextStyle(color: Colors.grey[600])),
+          const SizedBox(height: 8),
+          Text(chat.fileName ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 24),
+          ElevatedButton.icon(
+            onPressed: () => _downloadFile(url),
+            icon: const Icon(Icons.download),
+            label: const Text('Download File'),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF5C59E8), foregroundColor: Colors.white),
+          ),
+        ],
+      ),
+    );
   }
 }

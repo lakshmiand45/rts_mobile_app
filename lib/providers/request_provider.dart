@@ -259,6 +259,8 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
       debugPrint('DEBUG: Fetch Requests Query String: $queryString');
       final response = await _apiService.get('/requests?$queryString');
       final dynamic decodedData = json.decode(response.body);
+      debugPrint('DEBUG: Fetch Requests Response: $decodedData');
+
 
       List<dynamic> listData = [];
       int totalItems = 0;
@@ -416,8 +418,10 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
   }
 
   Future<ChatModel?> sendChatMessage(String ticketId, String text, String type) async {
+    print('DEBUG: sendChatMessage called for ticketId: $ticketId, type: $type, text: $text');
     try {
       final response = await _apiService.post('/requests/$ticketId/chat', {'type': type, 'text': text});
+      print('DEBUG: sendChatMessage API response status: ${response.statusCode}, body: ${response.body}');
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final dynamic decoded = json.decode(response.body);
         final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
@@ -425,11 +429,13 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
 
         final prefs = await SharedPreferences.getInstance();
         await prefs.setInt('$_lastMsgIdKey$ticketId', newMessage.id);
+        print('DEBUG: sendChatMessage successful, newMessage ID: ${newMessage.id}');
         return newMessage;
       }
+      print('DEBUG: sendChatMessage failed, status code: ${response.statusCode}');
       return null;
     } catch (e) {
-      debugPrint('DEBUG: sendChatMessage error: $e');
+      print('DEBUG: sendChatMessage error: $e');
       return null;
     }
   }
@@ -527,7 +533,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
     }
   }
 
-  Future<bool> updateStatus(String ticketId, RequestStatus status, {String comment = '', bool isRM = false, bool isHOD = false, bool isAdmin = false, bool isDeptHOD = false, bool isManagement = false, DateTime? checkingDeadline, String? checkingDeadlineReason}) async {
+  Future<bool> updateStatus(String ticketId, RequestStatus status, {String comment = '', bool isRM = false, bool isHOD = false, bool isAdmin = false, bool isDeptHOD = false, bool isManagement = false, DateTime? checkingDeadline, String? checkingReason}) async {
     try {
       String decision = 'Pending';
       Map<String, dynamic> body = {'comment': comment};
@@ -539,8 +545,11 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
         if (checkingDeadline != null) {
           body['checkingDeadline'] = checkingDeadline.toIso8601String();
         }
-        if (checkingDeadlineReason != null) {
-          body['checkingDeadlineReason'] = checkingDeadlineReason;
+        if (checkingReason != null) {
+          // Sending reason under multiple keys to ensure the backend receives it regardless of its expected key
+          body['checkingReason'] = checkingReason;
+          body['checkingDeadlineReason'] = checkingReason;
+          body['checking_reason'] = checkingReason;
         }
       }
       else if (status == RequestStatus.closed) decision = 'Closed';
@@ -559,6 +568,14 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
           for (final req in state.requests)
             if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req
         ]);
+        
+        // Post message to chat if it was "Checking"
+        if (status == RequestStatus.checking && checkingDeadline != null) {
+             final formattedDate = DateFormat('dd/MM/yyyy').format(checkingDeadline);
+             final chatText = "Checking status set with deadline: $formattedDate\nReason: ${checkingReason ?? 'No reason provided.'}";
+             await sendChatMessage(ticketId, chatText, 'status_update');
+        }
+
         _sortRequests();
         return true;
       }
@@ -660,7 +677,14 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final dynamic decoded = json.decode(response.body);
         final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
-        final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
+        RequestModel updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
+
+        // Explicitly set overallStatus based on the acknowledge action
+        if (status.toLowerCase() == 'received') {
+          updatedReq = updatedReq.copyWith(overallStatus: RequestStatus.closed);
+        } else if (status.toLowerCase() == 'not received') {
+          updatedReq = updatedReq.copyWith(overallStatus: RequestStatus.open);
+        }
 
         state = state.copyWith(requests: [
           for (final req in state.requests)

@@ -64,18 +64,18 @@ class _CheckingDeadlineModalState extends ConsumerState<CheckingDeadlineModal> {
     final user = authState.user;
     final role = user?.role.toUpperCase();
     
-    // Combine deadline and reason for the comment field
+    // Pass the checkingReason parameter to match requestProvider.updateStatus signature
     final success = await ref.read(requestProvider.notifier).updateStatus(
       widget.ticketId, 
       RequestStatus.checking, 
-      comment: '', // Comment field can be empty now
+      comment: '', 
       isRM: role == 'RM', 
       isHOD: role == 'HOD',
       isDeptHOD: role == 'DEPTHOD',
       isAdmin: role == 'ADMIN',
       isManagement: role == 'MANAGEMENT',
-      checkingDeadline: _selectedDate, // Pass the selected date
-      checkingDeadlineReason: reason,   // Pass the reason
+      checkingDeadline: _selectedDate, 
+      checkingReason: reason,   // Updated from checkingDeadlineReason to checkingReason
     );
 
     if (mounted) {
