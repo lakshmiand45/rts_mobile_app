@@ -5,6 +5,7 @@ import '../dashboard/dashboard_screen.dart';
 import '../food_request/food_request_screen.dart';
 import '../food_request/food_subscription_screen.dart';
 import '../../providers/food_provider.dart';
+import '../auth/login_screen.dart';
 
 class RoleSelectionScreen extends ConsumerStatefulWidget {
   const RoleSelectionScreen({super.key});
@@ -146,7 +147,15 @@ class _RoleSelectionScreenState extends ConsumerState<RoleSelectionScreen> {
                       const SizedBox(height: 16),
                       Center(
                         child: TextButton(
-                          onPressed: () => ref.read(authProvider.notifier).logout(),
+                          onPressed: () async {
+                            await ref.read(authProvider.notifier).logout();
+                            if (mounted) {
+                              Navigator.of(context).pushAndRemoveUntil(
+                                MaterialPageRoute(builder: (context) => const LoginScreen()),
+                                (route) => false,
+                              );
+                            }
+                          },
                           child: const Text('Back to Login', style: TextStyle(color: Colors.red)),
                         ),
                       ),
