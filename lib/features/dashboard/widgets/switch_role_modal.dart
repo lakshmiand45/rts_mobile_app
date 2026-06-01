@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/request_provider.dart';
+import '../../auth/login_screen.dart';
 
 class SwitchRoleModal extends ConsumerStatefulWidget {
   const SwitchRoleModal({super.key});
@@ -118,6 +119,22 @@ class _SwitchRoleModalState extends ConsumerState<SwitchRoleModal> {
                             );
                           },
                         ),
+            ),
+            const SizedBox(height: 24), // Added spacing
+            Center(
+              child: TextButton(
+                onPressed: () async {
+                  await ref.read(authProvider.notifier).logout();
+                  if (mounted) {
+                    Navigator.pop(context); // Close the modal
+                    Navigator.of(context).pushAndRemoveUntil(
+                      MaterialPageRoute(builder: (context) => const LoginScreen()),
+                      (route) => false, // Clear all routes
+                    );
+                  }
+                },
+                child: const Text('Logout', style: TextStyle(color: Colors.red)),
+              ),
             ),
           ],
         ),
