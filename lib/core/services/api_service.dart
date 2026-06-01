@@ -16,7 +16,7 @@ class FileData {
 
 class ApiService {
   // Use a getter to ensure the value is retrieved from dotenv after it's loaded in main.dart
-  String get baseUrl => '${dotenv.env['API_BASE_URL'] ?? 'http://192.168.1.128:5000'}/api';
+  String get baseUrl => '${dotenv.env['API_BASE_URL'] ?? 'http://192.168.1.218:5000'}/api';
   String? _token;
 
   void setToken(String token) {

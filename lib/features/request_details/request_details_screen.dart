@@ -834,7 +834,46 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
     final authState = ref.read(authProvider);
     final user = authState.user;
     final bool isMe = chat.senderId == user?.userId;
-    final bool isClosureMessage = chat.text?.toLowerCase().contains('ticket closed') == true || chat.text?.toLowerCase().contains('resolution submitted') == true;
+    
+    final String chatText = chat.text?.toLowerCase() ?? '';
+    final bool isApproved = chatText.contains('approved the request');
+    final bool isChecking = chatText.contains('checking the request');
+    final bool isRejected = chatText.contains('rejected the request');
+    
+    // Detection for Forwarded (Green)
+    final bool isForwarded = chatText.contains('forwarded');
+    
+    // Detection for Green (Resolved/Acknowledged)
+    final bool isNotResolved = chatText.contains('not resolved') || chatText.contains('not received');
+    final bool isResolved = (chatText.contains('resolved') || chatText.contains('received') || chatText.contains('receipt') || chatText.contains('confirmed receipt')) 
+                        && !isNotResolved && !chatText.contains('resolution submitted');
+    
+    // Detection for Red (Closure/Rejection)
+    final bool isClosureMessage = chatText.contains('ticket closed') || chatText.contains('resolution submitted') || (chatText.contains('officially closed') && !isResolved);
+    
+    // Status-based colors
+    Color bubbleColor = isMe ? const Color(0xFF5C59E8) : const Color(0xFFF8FAFC);
+    Color textColor = isMe ? Colors.white : Colors.black;
+    Color iconColor = isMe ? Colors.white : const Color(0xFF5C59E8);
+
+    if (isApproved || isResolved || isForwarded) {
+      bubbleColor = const Color(0xFF10B981); // Green
+      textColor = Colors.white;
+      iconColor = Colors.white;
+    } else if (isChecking) {
+      bubbleColor = Colors.orange; // Orange
+      textColor = Colors.white;
+      iconColor = Colors.white;
+    } else if (isRejected || isNotResolved) {
+      bubbleColor = Colors.red; // Red
+      textColor = Colors.white;
+      iconColor = Colors.white;
+    } else if (isClosureMessage) {
+      bubbleColor = const Color(0xFFEF4444); // Red for closure
+      textColor = Colors.white;
+      iconColor = Colors.white;
+    }
+
     String initials = '??';
     if (chat.senderName.trim().isNotEmpty) {
       List<String> nameParts = chat.senderName.trim().split(' ');
@@ -857,12 +896,12 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
                 const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: isMe ? const Color(0xFF5C59E8) : const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(12)),
+                  decoration: BoxDecoration(color: bubbleColor, borderRadius: BorderRadius.circular(12)),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (isClosureMessage) Text(chat.text!, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isMe ? Colors.white : Colors.black))
-                      else if (chat.text != null && chat.text!.isNotEmpty) Text(chat.text!, style: TextStyle(fontSize: 12, color: isMe ? Colors.white : Colors.black)),
+                      if (isClosureMessage || isNotResolved || isResolved || isForwarded) Text(chat.text!, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: textColor))
+                      else if (chat.text != null && chat.text!.isNotEmpty) Text(chat.text!, style: TextStyle(fontSize: 12, color: textColor)),
                       if (chat.fileUrl != null || (isClosureMessage && ticket.attachedFileUrl != null))
                         Row(
                           mainAxisSize: MainAxisSize.min,
@@ -872,13 +911,13 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
                                 onTap: () => _previewChatAttachment(chat),
                                 child: Container(
                                   margin: const EdgeInsets.only(top: 8), padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.white.withOpacity(0.4), borderRadius: BorderRadius.circular(8)),
-                                  child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.insert_drive_file, size: 16, color: isMe ? Colors.white : const Color(0xFF5C59E8)), const SizedBox(width: 8), Flexible(child: Text(chat.fileName ?? ticket.attachedFileName ?? 'Attachment', style: TextStyle(fontSize: 11, color: isMe ? Colors.white : const Color(0xFF5C59E8), decoration: TextDecoration.underline), overflow: TextOverflow.ellipsis))]),
+                                  child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.insert_drive_file, size: 16, color: iconColor), const SizedBox(width: 8), Flexible(child: Text(chat.fileName ?? ticket.attachedFileName ?? 'Attachment', style: TextStyle(fontSize: 11, color: iconColor, decoration: TextDecoration.underline), overflow: TextOverflow.ellipsis))]),
                                 ),
                               ),
                             ),
                             IconButton(
                               onPressed: () => _downloadFile(chat.fileUrl ?? ticket.attachedFileUrl!),
-                              icon: Icon(Icons.download_rounded, size: 18, color: isMe ? Colors.white70 : const Color(0xFF5C59E8)),
+                              icon: Icon(Icons.download_rounded, size: 18, color: (textColor == Colors.white) ? Colors.white70 : iconColor),
                               padding: const EdgeInsets.only(top: 8, left: 4),
                               constraints: const BoxConstraints(),
                               tooltip: 'Download',
