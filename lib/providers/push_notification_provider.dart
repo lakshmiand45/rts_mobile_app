@@ -14,8 +14,9 @@
  * unregisters it upon logout by listening to the `authProvider`.
  * 4. Foreground Notifications: Displays custom local alerts with interactive action
  * buttons only for food reminders. New request notifications show without buttons.
- * 5. Navigation: Redirects users to specific screens (Food Subscription / Dashboard)
- * when a notification is tapped, using the global `navigatorKey`.
+ * 5. Navigation: Redirects users to specific screens based on notification type:
+ * - food_reminder → FoodSubscriptionScreen
+ * - new_request → RequestDetailsScreen (with ticketId)
  *
  * STATE:
  * - Returns a boolean: `true` if the device token is successfully registered with the backend,
@@ -23,7 +24,7 @@
  *
  * NOTIFICATION ACTIONS:
  * - 'food_reminder' → navigates to FoodSubscriptionScreen (with Yes/No buttons)
- * - 'new_request' → navigates to DashboardScreen (no buttons)
+ * - 'new_request' → navigates to RequestDetailsScreen (no buttons, needs request_id)
  */
 
 import 'package:flutter/foundation.dart';
@@ -37,7 +38,7 @@ import '../core/services/push_notifications_api.dart';
 import 'auth_provider.dart';
 import '../../main.dart';
 import 'package:rts/features/food_request/food_subscription_screen.dart';
-import 'package:rts/features/dashboard/dashboard_screen.dart';
+import 'package:rts/features/request_details/request_details_screen.dart';
 
 // ─────────────────────────────────────────────
 // BACKGROUND HANDLER
@@ -65,34 +66,39 @@ class PushNotificationNotifier extends StateNotifier<bool> {
   // ─────────────────────────────────────────────
   // NAVIGATION HELPER
   // Single place to handle all navigation logic
+  // food_reminder → FoodSubscriptionScreen
+  // new_request → RequestDetailsScreen(ticketId)
   // ─────────────────────────────────────────────
 
-  void _navigateBasedOnAction(String? action) {
+  void _navigateBasedOnAction(String? action, {String? requestId}) {
     debugPrint('=== NAVIGATION CALLED ===');
     debugPrint('Action: $action');
-    debugPrint('NavigatorKey: $_navigatorKey');
-    debugPrint('CurrentState: ${_navigatorKey.currentState}');
-    // ↑ if this prints NULL → that's the problem
-    debugPrint('========================');
-
-        //debugPrint('Navigating based on action: $action');
+    debugPrint('RequestId: $requestId');
+    debugPrint('NavigatorState: ${_navigatorKey.currentState}');
+    debugPrint('=========================');
 
     if (action == 'food_reminder') {
       // Food reminder → go to FoodSubscriptionScreen
-      debugPrint('Trying to navigate to FoodSubscriptionScreen...');
+      // No requestId needed
       _navigatorKey.currentState?.push(
         MaterialPageRoute(
           builder: (context) => const FoodSubscriptionScreen(),
         ),
       );
     } else if (action == 'new_request') {
-      // New request → go to DashboardScreen
-      debugPrint('Trying to navigate to DashboardScreen...');
-      _navigatorKey.currentState?.push(
-        MaterialPageRoute(
-          builder: (context) => const DashboardScreen(),
-        ),
-      );
+      // New request → go to RequestDetailsScreen
+      // Pass requestId as ticketId directly ✅
+      if (requestId != null && requestId.isNotEmpty) {
+        _navigatorKey.currentState?.push(
+          MaterialPageRoute(
+            builder: (context) => RequestDetailsScreen(
+              ticketId: requestId,
+            ),
+          ),
+        );
+      } else {
+        debugPrint('RequestId is null or empty — cannot navigate to details');
+      }
     } else {
       debugPrint('Unknown action: $action — no navigation performed');
     }
@@ -104,7 +110,8 @@ class PushNotificationNotifier extends StateNotifier<bool> {
   // ─────────────────────────────────────────────
 
   Future<void> initialize() async {
-    debugPrint('===INITALIZE CALLES===');
+    debugPrint('=== INITIALIZE CALLED ===');
+
     // Step 1: Register background handler
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
@@ -113,7 +120,7 @@ class PushNotificationNotifier extends StateNotifier<bool> {
 
     // Step 3: Ask user for notification permission
     await _requestPermissions();
-    debugPrint('=== PERMISSION DONE===');
+    debugPrint('=== PERMISSIONS DONE ===');
 
     // Step 4: Handle terminated/closed state
     // When app is fully closed and user taps notification
@@ -121,12 +128,18 @@ class PushNotificationNotifier extends StateNotifier<bool> {
     await FirebaseMessaging.instance.getInitialMessage();
 
     if (initialMessage != null) {
-      debugPrint('App opened from terminated state via notification');
-      debugPrint('Terminated message data: ${initialMessage.data}');
+      debugPrint('=== TERMINATED STATE NOTIFICATION ===');
+      debugPrint('Terminated DATA: ${initialMessage.data}');
+      debugPrint('Terminated ACTION: ${initialMessage.data['action']}');
+      debugPrint('Terminated REQUEST_ID: ${initialMessage.data['request_id']}');
+      debugPrint('=====================================');
+
+      final action = initialMessage.data['action'];
+      final requestId = initialMessage.data['request_id'];
 
       // Wait for first frame so navigatorKey is ready
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _navigateBasedOnAction(initialMessage.data['action']);
+        _navigateBasedOnAction(action, requestId: requestId);
       });
     }
 
@@ -138,9 +151,11 @@ class PushNotificationNotifier extends StateNotifier<bool> {
       debugPrint('Body: ${message.notification?.body}');
       debugPrint('DATA: ${message.data}');
       debugPrint('ACTION: ${message.data['action']}');
+      debugPrint('REQUEST_ID: ${message.data['request_id']}');
       debugPrint('=========================================');
 
       final action = message.data['action'];
+      final requestId = message.data['request_id'];
 
       RemoteNotification? notification = message.notification;
       AndroidNotification? android = message.notification?.android;
@@ -149,6 +164,7 @@ class PushNotificationNotifier extends StateNotifier<bool> {
 
         // ─────────────────────────────────
         // FOOD REMINDER — show WITH buttons
+        // No requestId needed
         // ─────────────────────────────────
         if (action == 'food_reminder') {
           const AndroidNotificationDetails androidDetails =
@@ -159,10 +175,10 @@ class PushNotificationNotifier extends StateNotifier<bool> {
             importance: Importance.max,
             priority: Priority.high,
             ticker: 'ticker',
-            actions: <AndroidNotificationAction>[
-              AndroidNotificationAction('yes', "Yes, I'm done ✓"),
-              AndroidNotificationAction('no', 'No, take me there →'),
-            ],
+            // actions: <AndroidNotificationAction>[
+            //   AndroidNotificationAction('yes', "Yes, I'm done ✓"),
+            //   AndroidNotificationAction('no', 'No, take me there →'),
+            // ],
           );
 
           const NotificationDetails platformDetails =
@@ -173,12 +189,13 @@ class PushNotificationNotifier extends StateNotifier<bool> {
             title: notification.title,
             body: notification.body,
             notificationDetails: platformDetails,
-            payload: action, // 'food_reminder'
+            payload: 'food_reminder|', // no requestId needed
           );
         }
 
         // ─────────────────────────────────
         // NEW REQUEST — show WITHOUT buttons
+        // Pass requestId in payload
         // ─────────────────────────────────
         else if (action == 'new_request') {
           const AndroidNotificationDetails androidDetails =
@@ -189,7 +206,7 @@ class PushNotificationNotifier extends StateNotifier<bool> {
             importance: Importance.max,
             priority: Priority.high,
             ticker: 'ticker',
-            // No actions = no buttons ✅
+            // No action buttons ✅
           );
 
           const NotificationDetails platformDetails =
@@ -200,7 +217,7 @@ class PushNotificationNotifier extends StateNotifier<bool> {
             title: notification.title,
             body: notification.body,
             notificationDetails: platformDetails,
-            payload: action, // 'new_request'
+            payload: 'new_request|$requestId', // pass requestId ✅
           );
         }
       }
@@ -212,9 +229,13 @@ class PushNotificationNotifier extends StateNotifier<bool> {
       debugPrint('=== BACKGROUND TAP — notification opened app ===');
       debugPrint('DATA: ${message.data}');
       debugPrint('ACTION: ${message.data['action']}');
+      debugPrint('REQUEST_ID: ${message.data['request_id']}');
       debugPrint('=================================================');
 
-      _navigateBasedOnAction(message.data['action']);
+      final action = message.data['action'];
+      final requestId = message.data['request_id']; // ← get requestId
+
+      _navigateBasedOnAction(action, requestId: requestId);
     });
 
     // Step 7: Listen for token refreshes
@@ -272,23 +293,35 @@ class PushNotificationNotifier extends StateNotifier<bool> {
     await _flutterLocalNotificationsPlugin.initialize(
       settings: initializationSettings,
       onDidReceiveNotificationResponse: (NotificationResponse response) async {
-        debugPrint('=== NOTIFICATION BUTTON TAPPED ===');
-        debugPrint('Action ID: ${response.actionId}');
+        debugPrint('=== NOTIFICATION RESPONSE ===');
+        debugPrint('ActionId: ${response.actionId}');
         debugPrint('Payload: ${response.payload}');
-        debugPrint('==================================');
+        debugPrint('=============================');
 
-        // payload = action value we set earlier
-        // ('food_reminder' or 'new_request')
-        final action = response.payload;
+        // Split payload to get action and requestId
+        // Format: 'action|requestId'
+        // food_reminder → 'food_reminder|'
+        // new_request → 'new_request|abc123'
+        final parts = response.payload?.split('|') ?? [];
+        final action = parts.isNotEmpty ? parts[0] : null;
+        final requestId = parts.length > 1 ? parts[1] : null;
 
+        debugPrint('Parsed Action: $action');
+        debugPrint('Parsed RequestId: $requestId');
+
+        // Tap 'No' button (food_reminder only):
         if (response.actionId == 'no') {
-          // User tapped "No, take me there →" button
-          // Only food_reminder has this button
-          // so action will always be 'food_reminder' here
-          _navigateBasedOnAction(action);
+          debugPrint('No button tapped → navigating');
+          _navigateBasedOnAction(action, requestId: requestId);
         }
-        // 'yes' button — just dismisses, nothing to do
-        // new_request has no buttons so won't reach here
+        // Tap notification BODY:
+        // actionId is null when body is tapped
+        else if (response.actionId == null) {
+          debugPrint('Notification body tapped → navigating');
+          _navigateBasedOnAction(action, requestId: requestId);
+        }
+        // Tap 'Yes' button:
+        // just dismisses, nothing to do ✅
       },
     );
 
