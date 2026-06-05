@@ -26,7 +26,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
   String? selectedDept;
   final List<String> departments = [
     'Academic','Admin','Animation','Broadcasting',
-    'Business Development','Corporate Communications','Documantation','Documentation','Govt.Relations',
+    'Business Development','Corporate Communications','Documentation','Govt.Relations',
     'HR','Management','Marketing','Operation','Purchase','Software','Store','System admin',
     'Technical Support', 'Finance', 'IT','Game Development'
   ];
@@ -219,7 +219,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
       }
     }
   }
-//this widget _buildPreviewWidget is used to preview the
+
   Widget _buildPreviewWidget(RequestModel ticket, {String? customUrl, String? customName}) {
     final fileName = (customName ?? ticket.attachedFileName ?? '').toLowerCase();
     final url = customUrl ?? ticket.attachedFileUrl;
@@ -285,9 +285,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    // Promotion to non-nullable local variable for safe access
     final currentTicket = ticket;
-
     final authState = ref.watch(authProvider);
     final user = authState.user;
     final String role = user?.role.toUpperCase() ?? '';
@@ -300,7 +298,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
             user.empId.toString().trim() == currentTicket.empId.toString().trim() ||
             user.name.trim().toLowerCase() == currentTicket.userName.trim().toLowerCase()
     );
-//Requests from other department
+
     final bool isOtherDepartmentHandler = user != null &&
         user.department.toLowerCase() != currentTicket.department.toLowerCase() &&
         currentTicket.assignedDepartments != null &&
@@ -311,27 +309,36 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
     final bool isForwarding = selectedDept != null && selectedDept != currentTicket.assignedDepartment;
     final bool canCloseTicket = ((role == 'DEPTHOD' || role == 'ADMIN' || role == 'MANAGEMENT') || isOtherDepartmentHandler) && !isClosed && !isResolved && !_isActionInProgress;
 
-    // Logic to disable actions if already approved/checking by the current user's role
     bool hasApprovedByMe = false;
     bool hasCheckedByMe = false;
+
+    final bool isUserInRequestorDept = user?.department.toLowerCase() == currentTicket.department.toLowerCase();
+
     if (role == 'RM') {
-      hasApprovedByMe = currentTicket.rmStatus == RequestStatus.approved;
-      hasCheckedByMe = currentTicket.rmStatus == RequestStatus.checking;
+      if (isUserInRequestorDept) {
+        hasApprovedByMe = currentTicket.rmStatus == RequestStatus.approved;
+        hasCheckedByMe = currentTicket.rmStatus == RequestStatus.checking;
+      } else if (isOtherDepartmentHandler) {
+        hasApprovedByMe = currentTicket.assignedRmStatus == RequestStatus.approved;
+        hasCheckedByMe = currentTicket.assignedRmStatus == RequestStatus.checking;
+      }
     } else if (role == 'HOD') {
-      hasApprovedByMe = currentTicket.hodStatus == RequestStatus.approved;
-      hasCheckedByMe = currentTicket.hodStatus == RequestStatus.checking;
+      if (isUserInRequestorDept) {
+        hasApprovedByMe = currentTicket.hodStatus == RequestStatus.approved;
+        hasCheckedByMe = currentTicket.hodStatus == RequestStatus.checking;
+      } else if (isOtherDepartmentHandler) {
+        hasApprovedByMe = currentTicket.assignedHodStatus == RequestStatus.approved;
+        hasCheckedByMe = currentTicket.assignedHodStatus == RequestStatus.checking;
+      }
     } else if (role == 'DEPTHOD') {
-      hasApprovedByMe = currentTicket.assignedHodStatus == RequestStatus.approved;
-      hasCheckedByMe = currentTicket.assignedHodStatus == RequestStatus.checking;
+      hasApprovedByMe = currentTicket.deptHodStatus == RequestStatus.approved;
+      hasCheckedByMe = currentTicket.deptHodStatus == RequestStatus.checking;
     }
 
-    // Requirement: If approved, disable checking and reject.
-    // Requirement: If checking confirmed, disable ONLY checking button.
     final bool approveEnabled  = buttonsEnabled && !hasApprovedByMe;
     final bool checkingEnabled = buttonsEnabled && !hasApprovedByMe && !hasCheckedByMe;
     final bool rejectEnabled   = buttonsEnabled && !hasApprovedByMe;
 
-    // strictly show when status is Resolved for requestor
     final bool showRequestorActions = isUserRequestor && isResolved;
 
     return Scaffold(
@@ -466,18 +473,34 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
             const SizedBox(height: 32),
             const Text('ADMIN ACTION', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
             const SizedBox(height: 16),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.start,
-                children: [
-                  _buildStatusBox('REQUESTOR RM STATUS', currentTicket.rmStatus),
-                  const SizedBox(width: 24),
-                  _buildStatusBox('REQUESTOR HOD STATUS', currentTicket.hodStatus),
-                  const SizedBox(width: 24),
-                  _buildStatusBox('ASSIGNED HOD STATUS', currentTicket.assignedHodStatus),
-                ],
-              ),
+            // Vertical Layout for Statuses
+            Column(
+              children: [
+                // ROW 1: RM, HOD, and ASSIGNED RM (Equally Spaced)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: _buildStatusBox('RM STATUS', currentTicket.rmStatus)),
+                    const SizedBox(width: 8),
+                    Expanded(child: _buildStatusBox('HOD STATUS', currentTicket.hodStatus)),
+                    const SizedBox(width: 8),
+                    Expanded(child: _buildStatusBox('ASSIGNED RM', currentTicket.assignedRmStatus)),
+                  ],
+                ),
+
+                const SizedBox(height: 24), // Spacing between the two rows
+
+                // ROW 2: ASSIGNED HOD and DeptHOD (Centrally Placed)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildStatusBox('ASSIGNED HOD', currentTicket.assignedHodStatus),
+                    const SizedBox(width: 40), // Space between the two centered items
+                    _buildStatusBox('DeptHOD STATUS', currentTicket.deptHodStatus),
+                  ],
+                ),
+              ],
             ),
 
             if (currentTicket.dueDate != null) ...[
@@ -589,24 +612,24 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
             ],
 
             const SizedBox(height: 16),
-            if (isAuthorizedRole || isOtherDepartmentHandler) ...[ // This whole section is for admin/other dept handler actions
+            if (isAuthorizedRole || isOtherDepartmentHandler) ...[
               TextField(controller: _commentController, decoration: const InputDecoration(hintText: 'Add your official comments here...', fillColor: Colors.white)),
               const SizedBox(height: 24),
               Row(
                 mainAxisAlignment: MainAxisAlignment.start,
                 children: [
-                  if (isAuthorizedRole) ...[ // Only show APPROVE/REJECT/FORWARD for genuinely authorized roles
+                  if (isAuthorizedRole) ...[
                     Expanded(child: _buildActionButton(isForwarding ? 'FORWARD' : 'APPROVE', const Color(0xFF10B981), isForwarding ? Icons.arrow_forward : Icons.check_circle_outline, approveEnabled ? () => isForwarding ? _forwardTicket() : _updateTicketStatus(RequestStatus.approved) : null)),
                     const SizedBox(width: 8),
                   ],
-                  if (isAuthorizedRole || isOtherDepartmentHandler) ...[ // CHECKING button visible for both
+                  if (isAuthorizedRole || isOtherDepartmentHandler) ...[
                     Expanded(child: _buildActionButton('CHECKING', Colors.orange, Icons.access_time, checkingEnabled ? () async {
                       final result = await showDialog(context: context, builder: (context) => CheckingDeadlineModal(ticketId: widget.ticketId));
                       if (result == true) _loadInitialData();
                     } : null)),
                     const SizedBox(width: 8),
                   ],
-                  if (isAuthorizedRole) // Only show REJECT for genuinely authorized roles
+                  if (isAuthorizedRole)
                     Expanded(child: _buildActionButton('REJECT', Colors.red, Icons.cancel_outlined, rejectEnabled ? () => _updateTicketStatus(RequestStatus.rejected) : null)),
                 ],
               ),
@@ -882,36 +905,32 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
     final bool isChecking = chatText.contains('checking the request');
     final bool isRejected = chatText.contains('rejected the request');
 
-    // Detection for Forwarded (Green)
     final bool isForwarded = chatText.contains('forwarded');
 
-    // Detection for Green (Resolved/Acknowledged)
     final bool isNotResolved = chatText.contains('not resolved') || chatText.contains('not received');
     final bool isResolved = (chatText.contains('resolved') || chatText.contains('received') || chatText.contains('receipt') || chatText.contains('confirmed receipt'))
         && !isNotResolved && !chatText.contains('resolution submitted');
 
-    // Detection for Red (Closure/Rejection)
     final bool isClosureMessage = chatText.contains('ticket closed') || chatText.contains('resolution submitted') || (chatText.contains('officially closed') && !isResolved);
 
-    // Status-based colors
     Color bubbleColor = isMe ? const Color(0xFF5C59E8) : const Color(0xFFF8FAFC);
     Color textColor = isMe ? Colors.white : Colors.black;
     Color iconColor = isMe ? Colors.white : const Color(0xFF5C59E8);
 
     if (isApproved || isResolved || isForwarded) {
-      bubbleColor = const Color(0xFF10B981); // Green
+      bubbleColor = const Color(0xFF10B981);
       textColor = Colors.white;
       iconColor = Colors.white;
     } else if (isChecking) {
-      bubbleColor = Colors.orange; // Orange
+      bubbleColor = Colors.orange;
       textColor = Colors.white;
       iconColor = Colors.white;
     } else if (isRejected || isNotResolved) {
-      bubbleColor = Colors.red; // Red
+      bubbleColor = Colors.red;
       textColor = Colors.white;
       iconColor = Colors.white;
     } else if (isClosureMessage) {
-      bubbleColor = const Color(0xFFEF4444); // Red for closure
+      bubbleColor = const Color(0xFFEF4444);
       textColor = Colors.white;
       iconColor = Colors.white;
     }
@@ -1039,4 +1058,3 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
     );
   }
 }
-

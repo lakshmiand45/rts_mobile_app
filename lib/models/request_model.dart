@@ -19,9 +19,13 @@ class RequestModel {
   final DateTime? rmStatusDate;
   final RequestStatus hodStatus;
   final DateTime? hodStatusDate;
+  final RequestStatus assignedRmStatus;
+  final DateTime? assignedRmStatusDate;
   final RequestStatus assignedHodStatus;
   final DateTime? assignedHodStatusDate;
-  final RequestStatus? assignedStatus; // Single declaration
+  final RequestStatus deptHodStatus;
+  final DateTime? deptHodStatusDate;
+  final RequestStatus? assignedStatus;
   final List<String>? assignedDepartments;
   final List<String>? assignedPersons;
   final DateTime? dueDate;
@@ -55,9 +59,13 @@ class RequestModel {
     this.rmStatusDate,
     this.hodStatus = RequestStatus.pending,
     this.hodStatusDate,
+    this.assignedRmStatus = RequestStatus.pending,
+    this.assignedRmStatusDate,
     this.assignedHodStatus = RequestStatus.pending,
     this.assignedHodStatusDate,
-    this.assignedStatus, // Single declaration in constructor
+    this.deptHodStatus = RequestStatus.pending,
+    this.deptHodStatusDate,
+    this.assignedStatus,
     this.assignedDepartments,
     this.assignedPersons,
     this.dueDate,
@@ -81,40 +89,38 @@ class RequestModel {
       : null;
 
   factory RequestModel.fromMap(Map<String, dynamic> map) {
-    // Status parsing with multiple fallback keys
     String? rawStatus = (map['status'] ?? map['assignedStatus'] ?? map['overallStatus'])?.toString();
     RequestStatus status = _parseStatus(rawStatus);
     
-    // Check all role-based status fields with snake_case fallbacks
     final rmStatus = _parseStatus(map['rmStatus'] ?? map['rm_status']);
     final hodStatus = _parseStatus(map['hodStatus'] ?? map['hod_status']);
     
-    // Revert assignedHodStatus parsing to prioritize deptHodStatus fallbacks
-    final deptHodStatus = _parseStatus(map['deptHodStatus'] ?? map['dept_hod_status']); // REVERTED
+    // Assigned RM Status parsing
+    final assignedRmStatus = _parseStatus(map['assignedRmStatus'] ?? map['assigned_rm_status']);
+    
+    // Assigned HOD Status parsing - separate from deptHodStatus
+    final assignedHodStatus = _parseStatus(map['assignedHodStatus'] ?? map['assigned_hod_status']);
 
-    // Parse the new assignedStatus field
-    final RequestStatus? parsedAssignedStatus = map['assignedStatus'] != null ? _parseStatus(map['assignedStatus']) : null; // NEW PARSING
+    // DeptHOD Status parsing
+    final deptHodStatus = _parseStatus(map['deptHodStatus'] ?? map['dept_hod_status']);
 
-    // Checking Details with snake_case fallbacks
+    final RequestStatus? parsedAssignedStatus = map['assignedStatus'] != null ? _parseStatus(map['assignedStatus']) : null;
+
     DateTime? extractedDeadline = _parseDateNullable(map['checkingDeadline'] ?? map['checking_deadline']);
     String? extractedReason = (map['checkingReason'] ?? map['checkingDeadlineReason'] ?? map['checking_deadline_reason'] ?? map['checking_reason'])?.toString();
 
-    // If any role-based status is checking, or we have a deadline, and the overall status is not finalized, set to checking
     if (status != RequestStatus.closed && 
         status != RequestStatus.resolved && 
         status != RequestStatus.rejected && 
         (rmStatus == RequestStatus.checking || 
          hodStatus == RequestStatus.checking || 
+         assignedRmStatus == RequestStatus.checking ||
+         assignedHodStatus == RequestStatus.checking ||
          deptHodStatus == RequestStatus.checking ||
          extractedDeadline != null)) {
       status = RequestStatus.checking;
     }
 
-    // Workflow logic:
-    // 1. Admin closes -> rawStatus: 'closed' -> Frontend status: 'resolved' (Blue)
-    // 2. User clicks 'Received' -> rawStatus: 'received' or isClosed: true -> Frontend status: 'closed' (Green)
-    // 3. User clicks 'Not Received' -> rawStatus: 'not received' -> Frontend status: 'open' (Orange)
-    
     bool isActuallyClosed = map['isClosed'] == true || 
                             rawStatus?.toLowerCase() == 'received' ||
                             rawStatus?.toLowerCase() == 'fully closed' || 
@@ -130,7 +136,6 @@ class RequestModel {
       status = RequestStatus.resolved;
     }
 
-    // Extraction for Resolution details
     String? resNote;
     dynamic rawUrl;
     String? fileName;
@@ -151,7 +156,6 @@ class RequestModel {
       }
     }
 
-    // Fallbacks for files
     if (map['fileUrls'] is List) {
       multiUrls ??= (map['fileUrls'] as List).map((e) => _normalizeUrl(e) ?? '').where((e) => e.isNotEmpty).toList();
     }
@@ -179,7 +183,6 @@ class RequestModel {
       }
     }
 
-    // Deep Search for missed details in activity logs if still missing
     if (extractedDeadline == null || extractedReason == null) {
       void deepSearch(dynamic data) {
         if (data is Map) {
@@ -193,12 +196,8 @@ class RequestModel {
                   extractedDeadline ??= DateTime(int.parse(dateParts[2]), int.parse(dateParts[0]), int.parse(dateParts[1]));
                 }
               } catch (_) {}
-              if (val.contains('PLAN:')) {
-                extractedReason ??= val.split('PLAN:')[1].trim();
-              }
-              if (val.contains('REASON:')) {
-                extractedReason ??= val.split('REASON:')[1].trim();
-              }
+              if (val.contains('PLAN:')) extractedReason ??= val.split('PLAN:')[1].trim();
+              if (val.contains('REASON:')) extractedReason ??= val.split('REASON:')[1].trim();
             }
             if (val is Map || val is List) deepSearch(val);
           }
@@ -225,9 +224,13 @@ class RequestModel {
       rmStatusDate: _parseDateNullable(map['rmDate'] ?? map['rm_date']),
       hodStatus: hodStatus,
       hodStatusDate: _parseDateNullable(map['hodDate'] ?? map['hod_date']),
-      assignedHodStatus: deptHodStatus,
-      assignedHodStatusDate: _parseDateNullable(map['deptHodDate'] ?? map['dept_hod_date']),
-      assignedStatus: parsedAssignedStatus, // New field in constructor call
+      assignedRmStatus: assignedRmStatus,
+      assignedRmStatusDate: _parseDateNullable(map['assignedRmDate'] ?? map['assigned_rm_date']),
+      assignedHodStatus: assignedHodStatus,
+      assignedHodStatusDate: _parseDateNullable(map['assignedHodDate'] ?? map['assigned_hod_date']),
+      deptHodStatus: deptHodStatus,
+      deptHodStatusDate: _parseDateNullable(map['deptHodDate'] ?? map['dept_hod_date']),
+      assignedStatus: parsedAssignedStatus,
       assignedDepartments: depts,
       assignedPersons: persons,
       dueDate: _parseDateNullable(map['dueDate'] ?? map['due_date']),
@@ -245,13 +248,10 @@ class RequestModel {
     );
   }
 
-  /// _normalizeUrl converts file paths into absolute URLs accessible by mobile devices.
   static String? _normalizeUrl(dynamic url) {
     if (url == null || url == 'null' || url == '') return null;
     String s = url.toString().trim();
     const String serverHost = '192.168.1.128:5000';
-
-    
     if (s.startsWith('http')) {
       if (s.contains(' ')) {
         final parts = s.split('/');
@@ -260,12 +260,9 @@ class RequestModel {
       }
       return s;
     }
-
     if (s.startsWith('/')) s = s.substring(1);
     if (s.startsWith('api/files/')) s = s.substring(10);
-    
     final String cleanFileName = s.split('/').last;
-    
     return Uri.http(serverHost, '/api/files/$cleanFileName').toString();
   }
 
@@ -296,7 +293,6 @@ class RequestModel {
   static RequestStatus _parseStatus(dynamic status) {
     if (status == null || status == '--' || status == '---') return RequestStatus.pending;
     String s = status.toString().toLowerCase().trim();
-    // New logic: Extract status from "DATE (STATUS)" format
     if (s.contains('(') && s.contains(')')) {
       final startIndex = s.indexOf('(');
       final endIndex = s.indexOf(')');
@@ -304,12 +300,10 @@ class RequestModel {
         s = s.substring(startIndex + 1, endIndex).trim();
       }
     }
-
     if (s == 'open' || s == 'not received') return RequestStatus.open;
     if (s == 'closed' || s == 'received' || s == 'fully closed') return RequestStatus.closed;
     if (s == 'resolved' || s.contains('acknowledgement')) return RequestStatus.resolved;
     if (s.contains('checking')) return RequestStatus.checking;
-
     return RequestStatus.values.firstWhere(
           (e) => e.name.toLowerCase() == s,
       orElse: () => RequestStatus.pending,
@@ -342,9 +336,13 @@ class RequestModel {
     DateTime? rmStatusDate,
     RequestStatus? hodStatus,
     DateTime? hodStatusDate,
+    RequestStatus? assignedRmStatus,
+    DateTime? assignedRmStatusDate,
     RequestStatus? assignedHodStatus,
     DateTime? assignedHodStatusDate,
-    RequestStatus? assignedStatus, // Single declaration in copyWith
+    RequestStatus? deptHodStatus,
+    DateTime? deptHodStatusDate,
+    RequestStatus? assignedStatus,
     List<String>? assignedDepartments,
     List<String>? assignedPersons,
     DateTime? dueDate,
@@ -378,9 +376,13 @@ class RequestModel {
       rmStatusDate: rmStatusDate ?? this.rmStatusDate,
       hodStatus: hodStatus ?? this.hodStatus,
       hodStatusDate: hodStatusDate ?? this.hodStatusDate,
+      assignedRmStatus: assignedRmStatus ?? this.assignedRmStatus,
+      assignedRmStatusDate: assignedRmStatusDate ?? this.assignedRmStatusDate,
       assignedHodStatus: assignedHodStatus ?? this.assignedHodStatus,
       assignedHodStatusDate: assignedHodStatusDate ?? this.assignedHodStatusDate,
-      assignedStatus: assignedStatus ?? this.assignedStatus, // New in copyWith return
+      deptHodStatus: deptHodStatus ?? this.deptHodStatus,
+      deptHodStatusDate: deptHodStatusDate ?? this.deptHodStatusDate,
+      assignedStatus: assignedStatus ?? this.assignedStatus,
       assignedDepartments: assignedDepartments ?? this.assignedDepartments,
       assignedPersons: assignedPersons ?? this.assignedPersons,
       dueDate: dueDate ?? this.dueDate,
