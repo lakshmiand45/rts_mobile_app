@@ -8,10 +8,14 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/widgets/status_badge.dart';
 import '../../models/request_model.dart';
 import '../../models/chat_model.dart';
+import '../../models/user_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/request_provider.dart';
 import 'widgets/close_ticket_modal.dart';
 import 'widgets/checking_deadline_modal.dart';
+import 'widgets/approve_choice_modal.dart';
+import 'widgets/assign_internal_modal.dart';
+import 'widgets/forward_dept_modal.dart';
 
 class RequestDetailsScreen extends ConsumerStatefulWidget {
   final String ticketId;
@@ -143,6 +147,80 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
       }
     }
     return success;
+  }
+
+  Future<void> _handleDeptHodApproveAction() async {
+    final authState = ref.read(authProvider);
+    final user = authState.user;
+    final role = user?.role.toUpperCase();
+
+    if (role == 'DEPTHOD') {
+      final choice = await showDialog<String>(
+        context: context,
+        builder: (context) => const ApproveChoiceModal(),
+      );
+
+      if (choice == 'assign_internal') {
+        final dynamic selectedUsers = await showDialog(
+          context: context,
+          builder: (context) => AssignInternalModal(department: user!.department),
+        );
+
+        if (selectedUsers is List<UserModel>) {
+          setState(() => _isActionInProgress = true);
+          try {
+            final empIds = selectedUsers.map((u) => u.empId).toList();
+            final names = selectedUsers.map((u) => u.name).toList();
+            final success = await ref.read(requestProvider.notifier).approveAndAssignInternal(
+              widget.ticketId,
+              empIds,
+              names,
+              comment: _commentController.text.trim(),
+            );
+            if (success) {
+              await _loadInitialData();
+              if (mounted) {
+                _commentController.clear();
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Request approved and assigned internally')));
+              }
+            }
+          } finally {
+            if (mounted) setState(() => _isActionInProgress = false);
+          }
+        } else if (selectedUsers == 'back') {
+          _handleDeptHodApproveAction();
+        }
+      } else if (choice == 'forward_dept') {
+        final dynamic selectedDepts = await showDialog(
+          context: context,
+          builder: (context) => const ForwardDeptModal(),
+        );
+
+        if (selectedDepts is List<String>) {
+          setState(() => _isActionInProgress = true);
+          try {
+            final success = await ref.read(requestProvider.notifier).approveAndForwardDept(
+              widget.ticketId,
+              selectedDepts,
+              comment: _commentController.text.trim(),
+            );
+            if (success) {
+              await _loadInitialData();
+              if (mounted) {
+                _commentController.clear();
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Request approved and forwarded')));
+              }
+            }
+          } finally {
+            if (mounted) setState(() => _isActionInProgress = false);
+          }
+        } else if (selectedDepts == 'back') {
+          _handleDeptHodApproveAction();
+        }
+      }
+    } else {
+      _updateTicketStatus(RequestStatus.approved);
+    }
   }
 
   Future<void> _forwardTicket() async {
@@ -304,10 +382,12 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
         currentTicket.assignedDepartments != null &&
         currentTicket.assignedDepartments!.map((e) => e.toLowerCase()).contains(user.department.toLowerCase());
 
+    final bool isAssignedPerson = user != null && currentTicket.assignedPersonEmpIds != null && currentTicket.assignedPersonEmpIds!.contains(user.empId);
+
     final bool buttonsEnabled = (isAuthorizedRole || isOtherDepartmentHandler) && !isClosed && !isResolved && !_isActionInProgress;
     final bool canForward = isAuthorizedRole && !isClosed && !isResolved && !_isActionInProgress;
     final bool isForwarding = selectedDept != null && selectedDept != currentTicket.assignedDepartment;
-    final bool canCloseTicket = ((role == 'DEPTHOD' || role == 'ADMIN' || role == 'MANAGEMENT') || isOtherDepartmentHandler) && !isClosed && !isResolved && !_isActionInProgress;
+    final bool canCloseTicket = ((role == 'DEPTHOD' || role == 'ADMIN' || role == 'MANAGEMENT') || isOtherDepartmentHandler || isAssignedPerson) && !isClosed && !isResolved && !_isActionInProgress;
 
     bool hasApprovedByMe = false;
     bool hasCheckedByMe = false;
@@ -458,6 +538,58 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
                 ),
               ),
             ),
+
+            if (currentTicket.assignedDepartments != null && currentTicket.assignedDepartments!.isNotEmpty) ...[
+              const SizedBox(height: 24),
+              const Text('ALL ASSIGNED DEPARTMENTS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: currentTicket.assignedDepartments!.map((dept) => Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF5C59E8).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFF5C59E8).withOpacity(0.2)),
+                  ),
+                  child: Text(
+                    dept,
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF5C59E8)),
+                  ),
+                )).toList(),
+              ),
+            ],
+
+            if (currentTicket.assignedPersons != null && currentTicket.assignedPersons!.isNotEmpty) ...[
+              const SizedBox(height: 24),
+              const Text('ASSIGNED PERSON(S)', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: currentTicket.assignedPersons!.map((person) => Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFF10B981).withOpacity(0.2)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.person_outline, size: 14, color: Color(0xFF10B981)),
+                      const SizedBox(width: 4),
+                      Text(
+                        person,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
+                      ),
+                    ],
+                  ),
+                )).toList(),
+              ),
+            ],
+
             const SizedBox(height: 24),
             const Text('REQUEST DESCRIPTION', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
             const SizedBox(height: 8),
@@ -619,7 +751,8 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
                 mainAxisAlignment: MainAxisAlignment.start,
                 children: [
                   if (isAuthorizedRole) ...[
-                    Expanded(child: _buildActionButton(isForwarding ? 'FORWARD' : 'APPROVE', const Color(0xFF10B981), isForwarding ? Icons.arrow_forward : Icons.check_circle_outline, approveEnabled ? () => isForwarding ? _forwardTicket() : _updateTicketStatus(RequestStatus.approved) : null)),
+                    Expanded(child: _buildActionButton(isForwarding ? 'FORWARD' : 'APPROVE', const Color(0xFF10B981), isForwarding ? Icons.arrow_forward : Icons.check_circle_outline,
+                        approveEnabled ? () => isForwarding ? _forwardTicket() : _handleDeptHodApproveAction() : null)),
                     const SizedBox(width: 8),
                   ],
                   if (isAuthorizedRole || isOtherDepartmentHandler) ...[

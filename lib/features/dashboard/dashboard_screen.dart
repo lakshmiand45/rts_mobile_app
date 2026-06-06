@@ -668,7 +668,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
                     _buildFilterDropdownField('All Statuses', state.selectedStatuses.isNotEmpty ? state.selectedStatuses.first : null, state.filterStatuses, (val) {
                       ref.read(requestProvider.notifier).updateFilters(statuses: val != null ? [val] : []);
-                    }, onClear: state.selectedStatuses.isNotEmpty ? () => ref.read(requestProvider.notifier).updateFilters(clearStatus: true) : null),
+                      }, onClear: state.selectedStatuses.isNotEmpty ? () => ref.read(requestProvider.notifier).updateFilters(clearStatus: true) : null),
                     const SizedBox(height: 16),
 
                     GestureDetector(

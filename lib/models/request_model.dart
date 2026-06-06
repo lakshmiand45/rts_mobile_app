@@ -28,6 +28,7 @@ class RequestModel {
   final RequestStatus? assignedStatus;
   final List<String>? assignedDepartments;
   final List<String>? assignedPersons;
+  final List<String>? assignedPersonEmpIds;
   final DateTime? dueDate;
   final DateTime? checkingDeadline;
   final String? checkingReason;
@@ -68,6 +69,7 @@ class RequestModel {
     this.assignedStatus,
     this.assignedDepartments,
     this.assignedPersons,
+    this.assignedPersonEmpIds,
     this.dueDate,
     this.checkingDeadline,
     this.checkingReason,
@@ -169,7 +171,7 @@ class RequestModel {
       if (rawDept is List) {
         depts = List<String>.from(rawDept);
       } else {
-        depts = [rawDept.toString()];
+        depts = rawDept.toString().split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
       }
     }
 
@@ -179,7 +181,17 @@ class RequestModel {
       if (rawPerson is List) {
         persons = List<String>.from(rawPerson);
       } else {
-        persons = [rawPerson.toString()];
+        persons = rawPerson.toString().split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+      }
+    }
+
+    List<String>? personEmpIds;
+    final rawEmpId = map['assignedPersonEmpId'] ?? map['assigned_person_emp_id'];
+    if (rawEmpId != null) {
+      if (rawEmpId is List) {
+        personEmpIds = List<String>.from(rawEmpId);
+      } else {
+        personEmpIds = rawEmpId.toString().split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
       }
     }
 
@@ -233,6 +245,7 @@ class RequestModel {
       assignedStatus: parsedAssignedStatus,
       assignedDepartments: depts,
       assignedPersons: persons,
+      assignedPersonEmpIds: personEmpIds,
       dueDate: _parseDateNullable(map['dueDate'] ?? map['due_date']),
       checkingDeadline: extractedDeadline,
       checkingReason: extractedReason,
@@ -345,6 +358,7 @@ class RequestModel {
     RequestStatus? assignedStatus,
     List<String>? assignedDepartments,
     List<String>? assignedPersons,
+    List<String>? assignedPersonEmpIds,
     DateTime? dueDate,
     DateTime? checkingDeadline,
     String? checkingReason,
@@ -385,6 +399,7 @@ class RequestModel {
       assignedStatus: assignedStatus ?? this.assignedStatus,
       assignedDepartments: assignedDepartments ?? this.assignedDepartments,
       assignedPersons: assignedPersons ?? this.assignedPersons,
+      assignedPersonEmpIds: assignedPersonEmpIds ?? this.assignedPersonEmpIds,
       dueDate: dueDate ?? this.dueDate,
       checkingDeadline: checkingDeadline ?? this.checkingDeadline,
       checkingReason: checkingReason ?? this.checkingReason,

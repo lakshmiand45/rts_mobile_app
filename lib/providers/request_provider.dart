@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import '../models/request_model.dart';
 import '../models/chat_model.dart';
 import '../core/services/api_service.dart';
+import '../models/user_model.dart';
 import 'auth_provider.dart';
 
 class PaginatedRequestState {
@@ -191,6 +192,42 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
       );
     } catch (e) {
       debugPrint('DEBUG: Fetch Filter Options Error: $e');
+    }
+  }
+
+  Future<List<UserModel>> fetchUsersByDept(String depts) async {
+    try {
+      final response = await _apiService.get('/requests/users-by-dept?depts=$depts');
+      if (response.statusCode == 200) {
+        final dynamic decodedData = json.decode(response.body);
+        List<dynamic> listData = [];
+        if (decodedData is List) {
+          listData = decodedData;
+        } else if (decodedData is Map) {
+          listData = decodedData['users'] ?? decodedData['data'] ?? [];
+        }
+        return listData.map((json) => UserModel.fromMap(json)).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('DEBUG: fetchUsersByDept Error: $e');
+      return [];
+    }
+  }
+
+  Future<List<String>> fetchAllDepartments() async {
+    try {
+      final response = await _apiService.get('/requests/departments');
+      if (response.statusCode == 200) {
+        final dynamic decodedData = json.decode(response.body);
+        if (decodedData is Map && decodedData.containsKey('departments')) {
+          return List<String>.from(decodedData['departments']);
+        }
+      }
+      return [];
+    } catch (e) {
+      debugPrint('DEBUG: fetchAllDepartments Error: $e');
+      return [];
     }
   }
 
@@ -385,6 +422,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
       } catch (_) { updatedRequests.add(req); }
     }
     state = state.copyWith(requests: updatedRequests);
+    _sortRequests();
   }
 
   Future<List<ChatModel>> fetchChatMessages(String ticketId) async {
@@ -408,12 +446,23 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
         for (final req in state.requests)
           if (req.id == ticketId || req.slNo == ticketId) req.copyWith(unreadChatCount: 0) else req,
       ]);
+      _sortRequests();
     }
   }
 
   void _sortRequests() {
     final sorted = List<RequestModel>.from(state.requests);
-    sorted.sort((a, b) => b.date.compareTo(a.date));
+    sorted.sort((a, b) {
+      // Logic for "Unread": request is not seen yet OR has unread chat messages
+      final aUnread = !a.isRead || a.unreadChatCount > 0;
+      final bUnread = !b.isRead || b.unreadChatCount > 0;
+
+      if (aUnread && !bUnread) return -1;
+      if (!aUnread && bUnread) return 1;
+
+      // Secondary sort: Date Descending
+      return b.date.compareTo(a.date);
+    });
     state = state.copyWith(requests: sorted);
   }
 
@@ -586,6 +635,62 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
     }
   }
 
+  Future<bool> approveAndAssignInternal(String ticketId, List<String> empIds, List<String> names, {String comment = 'Approved & assigned to internal team.'}) async {
+    try {
+      final response = await _apiService.patch('/requests/$ticketId/approval', {
+        'decision': 'Approved',
+        'comment': comment,
+        'assignedPersonEmpId': empIds.join(', '),
+        'assignedPersonName': names.join(', '),
+      });
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final dynamic decoded = json.decode(response.body);
+        final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
+        final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
+
+        state = state.copyWith(requests: [
+          for (final req in state.requests)
+            if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req
+        ]);
+        _sortRequests();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('DEBUG: approveAndAssignInternal error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> approveAndForwardDept(String ticketId, List<String> depts, {String comment = ''}) async {
+    try {
+      final response = await _apiService.patch('/requests/$ticketId/approval', {
+        'decision': 'Forwarded',
+        'comment': comment.isEmpty ? 'Approved and forwarded to ${depts.join(', ')} for technical fulfilment.' : comment,
+        'newDept': depts.join(', '),
+        'dualDept': true
+      });
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final dynamic decoded = json.decode(response.body);
+        final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
+        final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
+
+        state = state.copyWith(requests: [
+          for (final req in state.requests)
+            if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req
+        ]);
+        _sortRequests();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('DEBUG: approveAndForwardDept error: $e');
+      return false;
+    }
+  }
+
   Future<bool> updateHODManagementApproval(String ticketId, RequestStatus status, {String comment = ''}) async {
     try {
       String decision = 'Pending';
@@ -643,27 +748,51 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
   }
 
   Future<bool> closeTicket(String ticketId, String note, {String? filePath, Uint8List? fileBytes, String? fileName}) async {
+    debugPrint('DEBUG: closeTicket started for ID: $ticketId');
     try {
       http.Response response;
+      final Map<String, String> fields = {
+        'note': note,
+        'comment': note,
+        'description': note,
+        'resolutionNote': note,
+        'resolution_note': note,
+      };
+
       if (filePath != null || fileBytes != null) {
-        final streamedResponse = await _apiService.patchMultipart('/requests/$ticketId/close', {'note': note}, filePath: filePath, fileBytes: fileBytes, fileName: fileName, fileKey: 'file');
+        debugPrint('DEBUG: Sending multipart PATCH request with fileKey: "file"');
+        final streamedResponse = await _apiService.patchMultipart(
+          '/requests/$ticketId/close', 
+          fields, 
+          filePath: filePath, 
+          fileBytes: fileBytes, 
+          fileName: fileName, 
+          fileKey: 'file'
+        );
         response = await http.Response.fromStream(streamedResponse);
+      } else {
+        debugPrint('DEBUG: Sending JSON PATCH request');
+        response = await _apiService.patch('/requests/$ticketId/close', fields);
       }
-      else {
-        response = await _apiService.patch('/requests/$ticketId/close', {'note': note});
-      }
+
+      debugPrint('DEBUG: closeTicket Response Status: ${response.statusCode}');
+      debugPrint('DEBUG: closeTicket Response Body: ${response.body}');
+
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final dynamic decoded = json.decode(response.body);
         final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
         final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
 
-        state = state.copyWith(requests: [for (final req in state.requests) if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req]);
+        state = state.copyWith(requests: [
+          for (final req in state.requests)
+            if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req
+        ]);
         _sortRequests();
         return true;
       }
       return false;
     } catch (e) {
-      debugPrint('DEBUG: closeTicket error: $e');
+      debugPrint('DEBUG: closeTicket Exception: $e');
       return false;
     }
   }
@@ -706,6 +835,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
       final response = await _apiService.patch('/requests/${request.id}/seen', {});
       if (response.statusCode >= 200 && response.statusCode < 300) {
         state = state.copyWith(requests: [for (final req in state.requests) if (req.id == request.id) req.copyWith(isRead: true) else req]);
+        _sortRequests();
       }
     } catch (_) { }
   }

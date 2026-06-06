@@ -18,7 +18,6 @@ class _CloseTicketModalState extends ConsumerState<CloseTicketModal> {
   PlatformFile? pickedFile;
   bool _isSubmitting = false;
 
-  // Expanded extensions to handle case-sensitivity and system categorization issues
   final List<String> _allowedExtensions = [
     'jpg', 'jpeg', 'png', 'pdf', 'docx', 'xlsx', 'csv', 'mp3', 'wav', 'm4a',
     'JPG', 'JPEG', 'PNG', 'PDF', 'DOCX', 'XLSX', 'CSV', 'MP3', 'WAV', 'M4A'
@@ -53,8 +52,6 @@ class _CloseTicketModalState extends ConsumerState<CloseTicketModal> {
     setState(() => _isSubmitting = true);
 
     try {
-      // Calling closeTicket which sends data to the backend.
-      // The requirement states that after roles "close" it, it should show as "Resolved".
       final success = await ref.read(requestProvider.notifier).closeTicket(
         widget.ticketId,
         note,
@@ -68,8 +65,13 @@ class _CloseTicketModalState extends ConsumerState<CloseTicketModal> {
         if (success) {
           Navigator.pop(context, true);
         } else {
+          // If the provider returned false, it means the API request failed.
+          // The exact error reason will be in the Debug Console.
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to close ticket. Please try again.'), backgroundColor: Colors.red),
+            const SnackBar(
+              content: Text('Failed to close ticket. Please check your network or try again.'),
+              backgroundColor: Colors.red,
+            ),
           );
         }
       }
