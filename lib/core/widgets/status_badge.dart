@@ -40,6 +40,10 @@ class StatusBadge extends StatelessWidget {
         color = const Color(0xFF10B981); // Slate Green for closed
         text = 'Closed';
         break;
+      case RequestStatus.forwarded:
+        color = const Color(0xFF5C59E8); // Indigo for forwarded
+        text = 'Forwarded';
+        break;
     }
 
     return Container(

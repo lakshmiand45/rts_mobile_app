@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 
-enum RequestStatus { open, approved, rejected, pending, checking, closed, resolved }
+enum RequestStatus { open, approved, rejected, pending, checking, closed, resolved, forwarded }
 
 class RequestModel {
   final String id;
@@ -43,6 +43,11 @@ class RequestModel {
   final String? resolutionNote;
   final List<String>? fileUrls;
   final List<String>? fileNames;
+  
+  // New fields from backend response
+  final bool isForwarded;
+  final String? forwardedBy;
+  final String? forwardedFromDept;
 
   RequestModel({
     required this.id,
@@ -84,6 +89,9 @@ class RequestModel {
     this.resolutionNote,
     this.fileUrls,
     this.fileNames,
+    this.isForwarded = false,
+    this.forwardedBy,
+    this.forwardedFromDept,
   });
 
   String? get assignedDepartment => (assignedDepartments != null && assignedDepartments!.isNotEmpty)
@@ -166,7 +174,7 @@ class RequestModel {
     }
 
     List<String>? depts;
-    final rawDept = map['assignedDept'] ?? map['assigned_dept'];
+    final rawDept = map['assignedDept'] ?? map['assigned_dept'] ?? map['assignedDepts'];
     if (rawDept != null) {
       if (rawDept is List) {
         depts = List<String>.from(rawDept);
@@ -258,6 +266,9 @@ class RequestModel {
       resolutionNote: resNote,
       fileUrls: multiUrls,
       fileNames: multiNames,
+      isForwarded: map['forwarded'] == true,
+      forwardedBy: map['forwardedBy']?.toString(),
+      forwardedFromDept: map['forwardedFromDept']?.toString(),
     );
   }
 
@@ -317,6 +328,7 @@ class RequestModel {
     if (s == 'closed' || s == 'received' || s == 'fully closed') return RequestStatus.closed;
     if (s == 'resolved' || s.contains('acknowledgement')) return RequestStatus.resolved;
     if (s.contains('checking')) return RequestStatus.checking;
+    if (s == 'forwarded') return RequestStatus.forwarded;
     return RequestStatus.values.firstWhere(
           (e) => e.name.toLowerCase() == s,
       orElse: () => RequestStatus.pending,
@@ -373,6 +385,9 @@ class RequestModel {
     String? resolutionNote,
     List<String>? fileUrls,
     List<String>? fileNames,
+    bool? isForwarded,
+    String? forwardedBy,
+    String? forwardedFromDept,
   }) {
     return RequestModel(
       id: id ?? this.id,
@@ -414,6 +429,9 @@ class RequestModel {
       resolutionNote: resolutionNote ?? this.resolutionNote,
       fileUrls: fileUrls ?? this.fileUrls,
       fileNames: fileNames ?? this.fileNames,
+      isForwarded: isForwarded ?? this.isForwarded,
+      forwardedBy: forwardedBy ?? this.forwardedBy,
+      forwardedFromDept: forwardedFromDept ?? this.forwardedFromDept,
     );
   }
 }

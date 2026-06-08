@@ -385,12 +385,17 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
     final bool isAssignedPerson = user != null && currentTicket.assignedPersonEmpIds != null && currentTicket.assignedPersonEmpIds!.contains(user.empId);
 
     final bool buttonsEnabled = (isAuthorizedRole || isOtherDepartmentHandler) && !isClosed && !isResolved && !_isActionInProgress;
+    
+    // logic updated to detect if a new department is selected
+    final bool isForwarding = selectedDept != null && selectedDept != currentTicket.assignedDepartment && !currentTicket.assignedDepartments!.contains(selectedDept);
+    
     final bool canForward = isAuthorizedRole && !isClosed && !isResolved && !_isActionInProgress;
-    final bool isForwarding = selectedDept != null && selectedDept != currentTicket.assignedDepartment;
     final bool canCloseTicket = ((role == 'DEPTHOD' || role == 'ADMIN' || role == 'MANAGEMENT') || isOtherDepartmentHandler || isAssignedPerson) && !isClosed && !isResolved && !_isActionInProgress;
 
     bool hasApprovedByMe = false;
     bool hasCheckedByMe = false;
+    bool hasRejectedByMe = false;
+    bool hasForwardedByMe = false;
 
     final bool isUserInRequestorDept = user?.department.toLowerCase() == currentTicket.department.toLowerCase();
 
@@ -398,26 +403,40 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
       if (isUserInRequestorDept) {
         hasApprovedByMe = currentTicket.rmStatus == RequestStatus.approved;
         hasCheckedByMe = currentTicket.rmStatus == RequestStatus.checking;
+        hasRejectedByMe = currentTicket.rmStatus == RequestStatus.rejected;
+        hasForwardedByMe = currentTicket.rmStatus == RequestStatus.forwarded;
       } else if (isOtherDepartmentHandler) {
         hasApprovedByMe = currentTicket.assignedRmStatus == RequestStatus.approved;
         hasCheckedByMe = currentTicket.assignedRmStatus == RequestStatus.checking;
+        hasRejectedByMe = currentTicket.assignedRmStatus == RequestStatus.rejected;
+        hasForwardedByMe = currentTicket.assignedRmStatus == RequestStatus.forwarded;
       }
     } else if (role == 'HOD') {
       if (isUserInRequestorDept) {
         hasApprovedByMe = currentTicket.hodStatus == RequestStatus.approved;
         hasCheckedByMe = currentTicket.hodStatus == RequestStatus.checking;
+        hasRejectedByMe = currentTicket.hodStatus == RequestStatus.rejected;
+        hasForwardedByMe = currentTicket.hodStatus == RequestStatus.forwarded;
       } else if (isOtherDepartmentHandler) {
         hasApprovedByMe = currentTicket.assignedHodStatus == RequestStatus.approved;
         hasCheckedByMe = currentTicket.assignedHodStatus == RequestStatus.checking;
+        hasRejectedByMe = currentTicket.assignedHodStatus == RequestStatus.rejected;
+        hasForwardedByMe = currentTicket.assignedHodStatus == RequestStatus.forwarded;
       }
     } else if (role == 'DEPTHOD') {
       hasApprovedByMe = currentTicket.deptHodStatus == RequestStatus.approved;
       hasCheckedByMe = currentTicket.deptHodStatus == RequestStatus.checking;
+      hasRejectedByMe = currentTicket.deptHodStatus == RequestStatus.rejected;
+      hasForwardedByMe = currentTicket.deptHodStatus == RequestStatus.forwarded;
     }
 
-    final bool approveEnabled  = buttonsEnabled && !hasApprovedByMe;
-    final bool checkingEnabled = buttonsEnabled && !hasApprovedByMe && !hasCheckedByMe;
-    final bool rejectEnabled   = buttonsEnabled && !hasApprovedByMe;
+    // A user's action is done if they have approved, rejected, or forwarded the request.
+    // Logic refined: If the ticket is forwarded and the user is in the original dept, they are done.
+    final bool isActionDoneByMe = hasApprovedByMe || hasRejectedByMe || hasForwardedByMe || (currentTicket.isForwarded && isUserInRequestorDept);
+
+    final bool approveEnabled  = buttonsEnabled && !isActionDoneByMe;
+    final bool checkingEnabled = buttonsEnabled && !isActionDoneByMe && !hasCheckedByMe;
+    final bool rejectEnabled   = buttonsEnabled && !isActionDoneByMe;
 
     final bool showRequestorActions = isUserRequestor && isResolved;
 
@@ -534,7 +553,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
                   icon: const Icon(Icons.arrow_drop_down, color: Colors.grey),
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black),
                   items: departments.map((dept) => DropdownMenuItem(value: dept, child: Text(dept))).toList(),
-                  onChanged: canForward ? (val) => setState(() => selectedDept = val) : null,
+                  onChanged: (canForward && !isActionDoneByMe) ? (val) => setState(() => selectedDept = val) : null,
                 ),
               ),
             ),
@@ -745,7 +764,11 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
 
             const SizedBox(height: 16),
             if (isAuthorizedRole || isOtherDepartmentHandler) ...[
-              TextField(controller: _commentController, decoration: const InputDecoration(hintText: 'Add your official comments here...', fillColor: Colors.white)),
+              TextField(
+                controller: _commentController, 
+                enabled: !isActionDoneByMe,
+                decoration: const InputDecoration(hintText: 'Add your official comments here...', fillColor: Colors.white)
+              ),
               const SizedBox(height: 24),
               Row(
                 mainAxisAlignment: MainAxisAlignment.start,
