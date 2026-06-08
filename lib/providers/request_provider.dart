@@ -289,14 +289,22 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
       if (state.selectedAssignedDept != null && state.scope != 'received') {
         queryParams['assignedDept'] = state.selectedAssignedDept!;
       }
-      if (state.selectedStatuses.isNotEmpty) queryParams['assignedStatus'] = state.selectedStatuses.join(',');
+      
+      // Sending status under multiple keys to ensure backend compatibility
+      if (state.selectedStatuses.isNotEmpty) {
+        final statusList = state.selectedStatuses.join(',');
+        queryParams['assignedStatus'] = statusList;
+        queryParams['status'] = statusList;
+        queryParams['overallStatus'] = statusList;
+      }
+      
       if (state.search.isNotEmpty) queryParams['search'] = state.search;
 
       final queryString = Uri(queryParameters: queryParams).query;
       debugPrint('DEBUG: Fetch Requests Query String: $queryString');
       final response = await _apiService.get('/requests?$queryString');
       final dynamic decodedData = json.decode(response.body);
-      debugPrint('DEBUG: Fetch Requests Response: $decodedData');
+      debugPrint('DEBUG: Fetch Requests Response Status: ${response.statusCode}');
 
 
       List<dynamic> listData = [];
@@ -314,12 +322,34 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
 
       final mappedRequests = listData.map((json) => RequestModel.fromMap(json as Map<String, dynamic>)).toList();
 
-      //implemented the date filter through frontend not through the backend.(it filters the selected date on the current page)
+      // Multi-field Local Search/Filtering
       List<RequestModel> filteredRequests = mappedRequests;
+      
+      // Local filtering for selected statuses to fix the issue where backend might not filter correctly
+      if (state.selectedStatuses.isNotEmpty) {
+        final lowercaseSelectedStatuses = state.selectedStatuses.map((s) => s.toLowerCase()).toList();
+        filteredRequests = filteredRequests.where((r) {
+          final overallStatus = r.overallStatus.name.toLowerCase();
+          return lowercaseSelectedStatuses.any((s) => overallStatus.contains(s) || s.contains(overallStatus));
+        }).toList();
+      }
+
+      if (state.search.isNotEmpty) {
+        final q = state.search.toLowerCase();
+        filteredRequests = filteredRequests.where((r) {
+          return r.userName.toLowerCase().contains(q) ||
+                 r.slNo.toLowerCase().contains(q) ||
+                 r.department.toLowerCase().contains(q) ||
+                 r.designation.toLowerCase().contains(q) ||
+                 r.location.toLowerCase().contains(q) ||
+                 r.title.toLowerCase().contains(q) ||
+                 r.overallStatus.name.toLowerCase().contains(q);
+        }).toList();
+      }
+
       if (state.selectedDate != null) {
-        filteredRequests = mappedRequests.where((request) {
+        filteredRequests = filteredRequests.where((request) {
           final requestDateFormatted = DateFormat('yyyy-MM-dd').format(request.date);
-          debugPrint('DEBUG: Filtering - Selected Date: ${state.selectedDate}, Request Date (raw): ${request.date}, Request Date (formatted): $requestDateFormatted, Match: ${requestDateFormatted == state.selectedDate}');
           return requestDateFormatted == state.selectedDate;
         }).toList();
       }
