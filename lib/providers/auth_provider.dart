@@ -55,11 +55,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final userJson = prefs.getString(_userKey);
     final token = prefs.getString(_tokenKey);
     final rolesJson = prefs.getString(_rolesKey);
-    
+
     if (token != null) {
       _apiService.setToken(token);
     }
-    
+
     List<dynamic>? availableRoles;
     if (rolesJson != null) {
       try {
@@ -68,7 +68,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         debugPrint('DEBUG: Error decoding roles: $e');
       }
     }
-    
+
     if (userJson != null) {
       final user = UserModel.fromJson(userJson);
       state = state.copyWith(user: user, availableRoles: availableRoles);
@@ -91,7 +91,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       });
 
       final responseData = json.decode(response.body);
-      
+
       if (responseData['needsRoleSelection'] == true) {
         state = state.copyWith(
           isLoading: false,
@@ -118,16 +118,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
   Future<Map<String, dynamic>> selectRole(Map<String, dynamic> roleData) async {
     try {
       state = state.copyWith(isLoading: true);
-      
+
       if (state.tempToken != null) {
         _apiService.setToken(state.tempToken!);
       }
 
       final response = await _apiService.post('/auth/select-role', roleData);
       final responseData = json.decode(response.body);
-      
+
       final data = responseData['data'] ?? responseData;
-      
+
       final String? token = data['token'];
       if (token == null || token.isEmpty) {
         throw 'Session expired. Please log in again.';
@@ -175,19 +175,19 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
     try {
       state = state.copyWith(isLoading: true);
-      
+
 
       await _apiService.post('/auth/logout', {});
     } catch (e) {
       debugPrint('DEBUG: Logout API Error: $e');
     } finally {
-      state = AuthState(); 
+      state = AuthState();
       _apiService.setToken('');
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_userKey);
       await prefs.remove(_tokenKey);
       await prefs.remove(_rolesKey);
-      
+
 
     }
   }
