@@ -6,6 +6,7 @@ class ChatModel {
   final String senderId;
   final String senderName;
   final String senderRole;
+  final String senderDepartment;
   final String type; // 'message', 'file', 'voice', 'approval'
   final String? text;
   final String? fileName;
@@ -18,6 +19,7 @@ class ChatModel {
     required this.senderId,
     required this.senderName,
     required this.senderRole,
+    required this.senderDepartment,
     required this.type,
     this.text,
     this.fileName,
@@ -29,9 +31,18 @@ class ChatModel {
     return ChatModel(
       id: map['id'] is String ? int.parse(map['id']) : (map['id'] ?? 0),
       requestId: map['requestId'] ?? 0,
-      senderId: map['senderId']?.toString() ?? map['userId']?.toString() ?? '',
+      senderId: (map['senderId'] ?? map['userId'] ?? '').toString(),
       senderName: map['author']?.toString() ?? map['senderName']?.toString() ?? map['name']?.toString() ?? 'System',
       senderRole: map['role']?.toString() ?? map['senderRole']?.toString() ?? 'User',
+      senderDepartment: (
+          map['senderDept'] ??
+              map['dept'] ??
+              map['department'] ??
+              map['senderDepartment'] ??
+              map['authorDept'] ??
+              'System' // Fallback to System instead of N/A
+      ).toString(),
+
       type: map['type'] ?? 'message',
       text: map['text'] ?? map['message'],
       fileName: map['fileName'],
