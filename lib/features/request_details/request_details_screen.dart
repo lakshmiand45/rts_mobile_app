@@ -1076,16 +1076,18 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
     final bool isMe = chat.senderId == user?.userId;
 
     final String chatText = chat.text?.toLowerCase() ?? '';
-    final bool isApproved = chatText.contains('approved the request');
-    final bool isChecking = chatText.contains('checking the request');
-    final bool isRejected = chatText.contains('rejected the request');
-    final bool isForwarded = chatText.contains('forwarded');
+    final String status = chat.status?.toLowerCase() ?? '';
+
+    final bool isApproved = status == 'approved' || chatText.contains('approved the request');
+    final bool isChecking = status == 'checking' || chatText.contains('checking the request');
+    final bool isRejected = status == 'rejected' || chatText.contains('rejected the request');
+    final bool isForwarded = status == 'forwarded' || chatText.contains('forwarded');
 
     final bool isNotResolved = chatText.contains('not resolved') || chatText.contains('not received');
-    final bool isResolved = (chatText.contains('resolved') || chatText.contains('received') || chatText.contains('receipt') || chatText.contains('confirmed receipt'))
+    final bool isResolved = (status == 'resolved' || chatText.contains('resolved') || chatText.contains('received') || chatText.contains('receipt') || chatText.contains('confirmed receipt'))
         && !isNotResolved && !chatText.contains('resolution submitted');
 
-    final bool isClosureMessage = chatText.contains('ticket closed') || chatText.contains('resolution submitted') || (chatText.contains('officially closed') && !isResolved);
+    final bool isClosureMessage = status == 'closed' || chatText.contains('ticket closed') || chatText.contains('resolution submitted') || (chatText.contains('officially closed') && !isResolved);
 
     // Default Properties
     Color cardBg = const Color(0xFFF8FAFC);

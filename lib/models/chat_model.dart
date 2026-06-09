@@ -12,6 +12,7 @@ class ChatModel {
   final String? fileName;
   final String? fileUrl;
   final DateTime createdAt;
+  final String? status; // Added to capture 'Approved', 'Rejected', etc.
 
   ChatModel({
     required this.id,
@@ -25,6 +26,7 @@ class ChatModel {
     this.fileName,
     this.fileUrl,
     required this.createdAt,
+    this.status,
   });
 
   factory ChatModel.fromMap(Map<String, dynamic> map) {
@@ -40,7 +42,7 @@ class ChatModel {
               map['department'] ??
               map['senderDepartment'] ??
               map['authorDept'] ??
-              'System' // Fallback to System instead of N/A
+              'System'
       ).toString(),
 
       type: map['type'] ?? 'message',
@@ -48,6 +50,7 @@ class ChatModel {
       fileName: map['fileName'],
       fileUrl: map['fileUrl'],
       createdAt: _parseDate(map['date'], map['time'] ?? map['createdAt'] ?? map['date']),
+      status: map['status']?.toString(),
     );
   }
 
@@ -105,6 +108,7 @@ class ChatModel {
       'text': text,
       'fileName': fileName,
       'fileUrl': fileUrl,
+      'status': status,
     };
   }
 }
