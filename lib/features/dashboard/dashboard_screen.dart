@@ -180,6 +180,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                   color: Color(0xFF64748B)
                               )
                           ),
+                          Text(
+                              (currentUser?.role ?? '').toUpperCase(),
+                              style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xFF90EE90)
+                              )
+                          ),
                         ],
                       ),
                     ),
