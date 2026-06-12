@@ -873,6 +873,19 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
       }
     } catch (_) { }
   }
+
+  Future<void> markAsUnread(String ticketId) async {
+    try {
+      final response = await _apiService.patch('/requests/$ticketId/unread', {});
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        state = state.copyWith(requests: [
+          for (final req in state.requests)
+            if (req.id == ticketId) req.copyWith(isRead: false) else req
+        ]);
+        _sortRequests();
+      }
+    } catch (_) { }
+  }
 }
 
 final requestProvider = StateNotifierProvider<RequestNotifier, PaginatedRequestState>((ref) {

@@ -442,7 +442,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     label: 'Add Request',
                     isSelected: _selectedMenuItem == 'Add Request',
                     onTap: () {
-                      setState(() => _selectedMenuItem = 'Add Request');
+                      setState(() => _selectedMenuItem == 'Add Request');
                       Navigator.pop(context);
                       showDialog(context: context, builder: (context) => const AddRequestModal());
                     },
@@ -454,7 +454,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     isSelected: _selectedMenuItem == 'Food Request',
                     iconColor: const Color(0xFFF59E0B),
                     onTap: () {
-                      setState(() => _selectedMenuItem = 'Food Request');
+                      setState(() => _selectedMenuItem == 'Food Request');
                       Navigator.pop(context);
 
                       final foodState = ref.read(foodProvider);
@@ -851,17 +851,34 @@ class _RequestCard extends ConsumerWidget {
                   ),
                 ),
 
-                if (request.assignedStatus != null) ...[
-                  const SizedBox(height: 8),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    if (request.assignedStatus != null) ...[
                       const Text('Requestor Status', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
                       const SizedBox(height: 4),
                       StatusBadge(status: request.assignedStatus!),
                     ],
-                  ),
-                ],
+                    const SizedBox(height: 12),
+                    IconButton(
+                      icon: Icon(
+                        request.isRead ? Icons.visibility : Icons.visibility_off,
+                        color: request.isRead ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                        size: 24,
+                      ),
+                      onPressed: () {
+                        if (request.isRead) {
+                          ref.read(requestProvider.notifier).markAsUnread(request.id);
+                        } else {
+                          ref.read(requestProvider.notifier).markAsRead(request.id);
+                        }
+                      },
+                      tooltip: request.isRead ? 'Mark as Unread' : 'Mark as Read',
+                      constraints: const BoxConstraints(),
+                      padding: EdgeInsets.zero,
+                    ),
+                  ],
+                ),
               ],
             ),
           ],
