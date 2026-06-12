@@ -308,8 +308,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                               _buildFilterChip(_getDisplayScope(state.scope), () {
                                 ref.read(requestProvider.notifier).updateFilters(scope: 'all');
                               }),
-                            if (isManagement && !hasActiveFilters)
-                              _buildFilterChip('HOD Pending', () {}, showClose: false),
+                            // if (isManagement && !hasActiveFilters)
+                            //   _buildFilterChip('HOD Pending', () {}, showClose: false),
                             if (state.selectedName != null)
                               _buildFilterChip(state.selectedName!, () => ref.read(requestProvider.notifier).updateFilters(clearName: true)),
                             if (state.selectedDept != null)
