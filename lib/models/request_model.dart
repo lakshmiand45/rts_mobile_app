@@ -48,6 +48,19 @@ class RequestModel {
   final bool isForwarded;
   final String? forwardedBy;
   final String? forwardedFromDept;
+  final String? requestorRole;
+  final DateTime? forwardedAt;
+  final String? resolvedBy;
+  final String? dueDateRaw;
+  final String? priority;
+  final int? daysUntilDue;
+  final String? checkingBy;
+  final int? checkingDaysLeft;
+  final String? acknowledgement;
+  final DateTime? acknowledgedAt;
+  final bool isGnRoute;
+  final bool isOwnRequest;
+  final bool isClosed;
 
   RequestModel({
     required this.id,
@@ -92,6 +105,19 @@ class RequestModel {
     this.isForwarded = false,
     this.forwardedBy,
     this.forwardedFromDept,
+    this.requestorRole,
+    this.forwardedAt,
+    this.resolvedBy,
+    this.dueDateRaw,
+    this.priority,
+    this.daysUntilDue,
+    this.checkingBy,
+    this.checkingDaysLeft,
+    this.acknowledgement,
+    this.acknowledgedAt,
+    this.isGnRoute = false,
+    this.isOwnRequest = false,
+    this.isClosed = false,
   });
 
   String? get assignedDepartment => (assignedDepartments != null && assignedDepartments!.isNotEmpty)
@@ -104,14 +130,8 @@ class RequestModel {
     
     final rmStatus = _parseStatus(map['rmStatus'] ?? map['rm_status']);
     final hodStatus = _parseStatus(map['hodStatus'] ?? map['hod_status']);
-    
-    // Assigned RM Status parsing
     final assignedRmStatus = _parseStatus(map['assignedRmStatus'] ?? map['assigned_rm_status']);
-    
-    // Assigned HOD Status parsing - separate from deptHodStatus
     final assignedHodStatus = _parseStatus(map['assignedHodStatus'] ?? map['assigned_hod_status']);
-
-    // DeptHOD Status parsing
     final deptHodStatus = _parseStatus(map['deptHodStatus'] ?? map['dept_hod_status']);
 
     final RequestStatus? parsedAssignedStatus = map['assignedStatus'] != null ? _parseStatus(map['assignedStatus']) : null;
@@ -269,6 +289,19 @@ class RequestModel {
       isForwarded: map['forwarded'] == true,
       forwardedBy: map['forwardedBy']?.toString(),
       forwardedFromDept: map['forwardedFromDept']?.toString(),
+      requestorRole: map['requestorRole']?.toString(),
+      forwardedAt: _parseDateNullable(map['forwardedAt'] ?? map['forwarded_at']),
+      resolvedBy: map['resolvedBy']?.toString(),
+      dueDateRaw: map['dueDateRaw']?.toString() ?? map['due_date_raw']?.toString(),
+      priority: map['priority']?.toString(),
+      daysUntilDue: map['daysUntilDue'] as int?,
+      checkingBy: map['checkingBy']?.toString() ?? map['checking_by']?.toString(),
+      checkingDaysLeft: map['checkingDaysLeft'] as int?,
+      acknowledgement: map['acknowledgement']?.toString(),
+      acknowledgedAt: _parseDateNullable(map['acknowledgedAt'] ?? map['acknowledged_at']),
+      isGnRoute: map['isGnRoute'] == true,
+      isOwnRequest: map['isOwnRequest'] == true,
+      isClosed: isActuallyClosed,
     );
   }
 
@@ -342,6 +375,19 @@ class RequestModel {
       'assignedPersonName': assignedPersons,
       'dueDate': dueDate?.toIso8601String(),
       'description': description,
+      'requestorRole': requestorRole,
+      'forwardedAt': forwardedAt?.toIso8601String(),
+      'resolvedBy': resolvedBy,
+      'dueDateRaw': dueDateRaw,
+      'priority': priority,
+      'daysUntilDue': daysUntilDue,
+      'checkingBy': checkingBy,
+      'checkingDaysLeft': checkingDaysLeft,
+      'acknowledgement': acknowledgement,
+      'acknowledgedAt': acknowledgedAt?.toIso8601String(),
+      'isGnRoute': isGnRoute,
+      'isOwnRequest': isOwnRequest,
+      'isClosed': isClosed,
     };
   }
 
@@ -388,6 +434,19 @@ class RequestModel {
     bool? isForwarded,
     String? forwardedBy,
     String? forwardedFromDept,
+    String? requestorRole,
+    DateTime? forwardedAt,
+    String? resolvedBy,
+    String? dueDateRaw,
+    String? priority,
+    int? daysUntilDue,
+    String? checkingBy,
+    int? checkingDaysLeft,
+    String? acknowledgement,
+    DateTime? acknowledgedAt,
+    bool? isGnRoute,
+    bool? isOwnRequest,
+    bool? isClosed,
   }) {
     return RequestModel(
       id: id ?? this.id,
@@ -432,6 +491,19 @@ class RequestModel {
       isForwarded: isForwarded ?? this.isForwarded,
       forwardedBy: forwardedBy ?? this.forwardedBy,
       forwardedFromDept: forwardedFromDept ?? this.forwardedFromDept,
+      requestorRole: requestorRole ?? this.requestorRole,
+      forwardedAt: forwardedAt ?? this.forwardedAt,
+      resolvedBy: resolvedBy ?? this.resolvedBy,
+      dueDateRaw: dueDateRaw ?? this.dueDateRaw,
+      priority: priority ?? this.priority,
+      daysUntilDue: daysUntilDue ?? this.daysUntilDue,
+      checkingBy: checkingBy ?? this.checkingBy,
+      checkingDaysLeft: checkingDaysLeft ?? this.checkingDaysLeft,
+      acknowledgement: acknowledgement ?? this.acknowledgement,
+      acknowledgedAt: acknowledgedAt ?? this.acknowledgedAt,
+      isGnRoute: isGnRoute ?? this.isGnRoute,
+      isOwnRequest: isOwnRequest ?? this.isOwnRequest,
+      isClosed: isClosed ?? this.isClosed,
     );
   }
 }

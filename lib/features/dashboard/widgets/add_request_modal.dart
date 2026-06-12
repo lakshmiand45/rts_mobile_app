@@ -24,10 +24,12 @@ class _AddRequestModalState extends ConsumerState<AddRequestModal> {
   List<PlatformFile> pickedFiles = [];
 
   final List<String> _departments = [
-    'Academic', 'Admin', 'Animation', 'Broadcasting',
-    'Business Development', 'Corporate Communications', 'Documantation', 'Govt.Relations',
-    'HR', 'Management', 'Marketing', 'Operation', 'Purchase', 'Software', 'Store',
-    'System admin', 'Technical Support','Game Development'
+    'Academics-Assam','Academics-Karnataka','Academics-Tripura','Academics-Uttarakhand','Accounts-A','Accounts-G','Animation','Broadcasting-Assam',
+    'Broadcasting-Karnataka','Broadcasting-Tripura','Broadcasting-Uttarakhand','Business Development','Corporate Communications','Documentation','Facilities',
+    'Food Committee','Game Development','Govt. Relations','HR','Interns','Management','Marketing','Operations-Assam','Operations-Bihar','Operations-Karnataka',
+    'Operations-Maharashtra','Operations-Mizoram','Operations-Nagaland','Operations-Tripura','Operations-Uttarakhand','Purchase','RTS Help Desk','Software',
+    'Stores-Assam','Stores-Karnataka','Stores-Mizoram','Stores-Tripura','System Admin-Assam','System Admin-Karnataka','System Admin-Uttarakhand','TA Committee',
+    'Technical Support'
   ];
 
   // Expanded extensions to handle case-sensitivity and system categorization issues

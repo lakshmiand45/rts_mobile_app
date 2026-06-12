@@ -157,7 +157,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
     bool resetName = clearName;
     bool resetAssignedDept = clearAssignedDept;
 
-    debugPrint('DEBUG: updateFilters - Incoming statuses: $statuses, date: $date');
+    debugPrint('DEBUG: updateFilters - Incoming statuses: $statuses, search: $search');
 
     if (scope == 'sent') resetName = true;
     if (scope == 'received') resetAssignedDept = true;
@@ -175,7 +175,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
       selectedDate: date,
       search: search,
     );
-    debugPrint('DEBUG: updateFilters - State after copyWith: selectedStatuses: ${state.selectedStatuses}, selectedDate: ${state.selectedDate}');
+    debugPrint('DEBUG: updateFilters - State after copyWith: search: ${state.search}');
 
     await fetchRequests(page: 1);
   }
@@ -289,15 +289,14 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
       if (state.selectedAssignedDept != null && state.scope != 'received') {
         queryParams['assignedDept'] = state.selectedAssignedDept!;
       }
-      
-      // Sending status under multiple keys to ensure backend compatibility
+
       if (state.selectedStatuses.isNotEmpty) {
         final statusList = state.selectedStatuses.join(',');
         queryParams['assignedStatus'] = statusList;
         queryParams['status'] = statusList;
         queryParams['overallStatus'] = statusList;
       }
-      
+
       if (state.search.isNotEmpty) queryParams['search'] = state.search;
 
       final queryString = Uri(queryParameters: queryParams).query;
@@ -322,10 +321,9 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
 
       final mappedRequests = listData.map((json) => RequestModel.fromMap(json as Map<String, dynamic>)).toList();
 
-      // Multi-field Local Search/Filtering
+      // Multi-field Local Search/Filtering (Universal Search)
       List<RequestModel> filteredRequests = mappedRequests;
-      
-      // Local filtering for selected statuses to fix the issue where backend might not filter correctly
+
       if (state.selectedStatuses.isNotEmpty) {
         final lowercaseSelectedStatuses = state.selectedStatuses.map((s) => s.toLowerCase()).toList();
         filteredRequests = filteredRequests.where((r) {
@@ -339,10 +337,12 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
         filteredRequests = filteredRequests.where((r) {
           return r.userName.toLowerCase().contains(q) ||
                  r.slNo.toLowerCase().contains(q) ||
+                 r.empId.toLowerCase().contains(q) ||
                  r.department.toLowerCase().contains(q) ||
                  r.designation.toLowerCase().contains(q) ||
                  r.location.toLowerCase().contains(q) ||
                  r.title.toLowerCase().contains(q) ||
+                 r.description.toLowerCase().contains(q) ||
                  r.overallStatus.name.toLowerCase().contains(q);
         }).toList();
       }
@@ -625,7 +625,6 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
           body['checkingDeadline'] = checkingDeadline.toIso8601String();
         }
         if (checkingReason != null) {
-          // Sending reason under multiple keys to ensure the backend receives it regardless of its expected key
           body['checkingReason'] = checkingReason;
           body['checkingDeadlineReason'] = checkingReason;
           body['checking_reason'] = checkingReason;
@@ -751,12 +750,17 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
     }
   }
 
-  Future<bool> forwardRequest(String ticketId, String newDept) async {
+  Future<bool> forwardRequest(String ticketId, String newDept, {bool isRM = false, bool isHOD = false, bool isDeptHOD = false, bool isAdmin = false, bool isManagement = false}) async {
     try {
       final response = await _apiService.patch('/requests/$ticketId/approval', {
         'decision': 'Forwarded',
         'newDept': newDept,
-        'comment': 'Ticket forwarded to $newDept'
+        'comment': 'Ticket forwarded to $newDept',
+        'isRM': isRM,
+        'isHOD': isHOD,
+        'isDeptHOD': isDeptHOD,
+        'isAdmin': isAdmin,
+        'isManagement': isManagement,
       });
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final dynamic decoded = json.decode(response.body);

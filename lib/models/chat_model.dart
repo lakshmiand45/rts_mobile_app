@@ -13,6 +13,11 @@ class ChatModel {
   final String? fileUrl;
   final DateTime createdAt;
   final String? status; // Added to capture 'Approved', 'Rejected', etc.
+  final bool? isImage;
+  final String? voiceUrl;
+  final int? duration;
+  final String? changedDept;
+  final String? originalDept;
 
   ChatModel({
     required this.id,
@@ -27,6 +32,11 @@ class ChatModel {
     this.fileUrl,
     required this.createdAt,
     this.status,
+    this.isImage,
+    this.voiceUrl,
+    this.duration,
+    this.changedDept,
+    this.originalDept,
   });
 
   factory ChatModel.fromMap(Map<String, dynamic> map) {
@@ -51,6 +61,11 @@ class ChatModel {
       fileUrl: map['fileUrl'],
       createdAt: _parseDate(map['date'], map['time'] ?? map['createdAt'] ?? map['date']),
       status: map['status']?.toString(),
+      isImage: map['isImage'] as bool?,
+      voiceUrl: map['voiceUrl']?.toString(),
+      duration: map['duration'] as int?,
+      changedDept: map['changedDept']?.toString(),
+      originalDept: map['originalDept']?.toString(),
     );
   }
 
@@ -109,6 +124,11 @@ class ChatModel {
       'fileName': fileName,
       'fileUrl': fileUrl,
       'status': status,
+      'isImage': isImage,
+      'voiceUrl': voiceUrl,
+      'duration': duration,
+      'changedDept': changedDept,
+      'originalDept': originalDept,
     };
   }
 }

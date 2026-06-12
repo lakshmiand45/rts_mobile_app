@@ -32,9 +32,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    _searchController.addListener(() {
+      setState(() {});
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(foodProvider.notifier).refreshAll(isSilent: true);
-      // Trigger initial fetch based on role
       ref.read(requestProvider.notifier).fetchRequests();
     });
   }
@@ -53,13 +55,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     });
   }
 
+  void _clearSearch() {
+    _searchController.clear();
+    _onSearchChanged('');
+    setState(() {});
+  }
+
   String _getDisplayScope(String scope) {
     if (scope == 'sent') return 'Sent';
     if (scope == 'received') return 'Received';
     return 'Request type';
   }
 
-  // Unified refresh method
   Future<void> _refreshData() async {
     await ref.read(requestProvider.notifier).fetchRequests(page: 1);
     await ref.read(foodProvider.notifier).refreshAll(isSilent: true);
@@ -117,7 +124,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // User Profile Section
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
               child: Container(
@@ -184,14 +190,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                               (currentUser?.role ?? '').toUpperCase(),
                               style: const TextStyle(
                                   fontSize: 10,
-                                  fontWeight: FontWeight.w900,
+                                  fontWeight: FontWeight.bold,
                                   color: Color(0xFF90EE90)
                               )
                           ),
                         ],
                       ),
                     ),
-                    // REFRESH BUTTON (Matching blue marked area in image)
                     Container(
                       margin: const EdgeInsets.only(right: 8),
                       decoration: BoxDecoration(
@@ -228,7 +233,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ),
             ),
 
-            // Search Bar Section
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
               child: Row(
@@ -244,14 +248,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       child: TextField(
                         controller: _searchController,
                         onChanged: _onSearchChanged,
-                        decoration: const InputDecoration(
-                          hintText: 'Search by name....',
-                          hintStyle: TextStyle(color: Color(0xFF94A3B8)),
-                          suffixIcon: Icon(Icons.search, color: Color(0xFF94A3B8)),
+                        decoration: InputDecoration(
+                          hintText: 'Search anything....',
+                          hintStyle: const TextStyle(color: Color(0xFF94A3B8)),
+                          prefixIcon: const Icon(Icons.search, color: Color(0xFF94A3B8)),
+                          suffixIcon: _searchController.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear, color: Color(0xFF94A3B8)),
+                                  onPressed: _clearSearch,
+                                )
+                              : null,
                           border: InputBorder.none,
                           enabledBorder: InputBorder.none,
                           focusedBorder: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                         ),
                       ),
                     ),
@@ -280,7 +290,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
             const SizedBox(height: 8),
 
-            // Filter Bar
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
               child: Container(
@@ -330,7 +339,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
             const SizedBox(height: 12),
 
-            // PULL-TO-REFRESH Wrapped content
             Expanded(
               child: RefreshIndicator(
                 onRefresh: _refreshData,
@@ -339,7 +347,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     Opacity(
                       opacity: state.isLoading ? 0.5 : 1.0,
                       child: ListView.builder(
-                        physics: const AlwaysScrollableScrollPhysics(), // Important for drag to refresh
+                        physics: const AlwaysScrollableScrollPhysics(),
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         itemCount: state.requests.length,
                         itemBuilder: (context, index) => _RequestCard(request: state.requests[index]),
@@ -392,7 +400,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final bool canTriggerReminder = currentUser?.role == 'DeptHOD' &&
         (currentUser?.department == 'HR' || currentUser?.department == 'Food Committee');
     final bool isBangalore = currentUser?.location.toLowerCase() == 'bangalore';
-    final bool isManagement = currentUser?.role.toLowerCase() == 'management';
 
     return Drawer(
       child: Column(
@@ -756,7 +763,6 @@ class _RequestCard extends ConsumerWidget {
     final authState = ref.watch(authProvider);
     final user = authState.user;
 
-    // Logic: If ticket is Resolved (HOD closed) and User is requestor
     final bool isUserRequestor = user != null && (
         user.userId.toString().trim() == request.userId.toString().trim() ||
             user.empId.toString().trim() == request.empId.toString().trim() ||
@@ -829,28 +835,6 @@ class _RequestCard extends ConsumerWidget {
                       Text(request.department, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B))),
                       Text(request.designation, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B))),
                       Text(request.location, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B))),
-                      if (request.assignedHodStatus == RequestStatus.checking && request.checkingDeadline != null) ...[
-                        const SizedBox(height: 8),
-                        // Container(
-                        //   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        //   decoration: BoxDecoration(
-                        //     color: const Color(0xFFFFFBEB),
-                        //     borderRadius: BorderRadius.circular(6),
-                        //     border: Border.all(color: const Color(0xFFFEF3C7)),
-                        //   ),
-                        //   child: Row(
-                        //     mainAxisSize: MainAxisSize.min,
-                        //     children: [
-                        //       const Icon(Icons.access_time, size: 12, color: Color(0xFFF59E0B)),
-                        //       const SizedBox(width: 4),
-                        //       Text(
-                        //         'Checking until ${DateFormat('dd/MM/yyyy').format(request.checkingDeadline!)}',
-                        //         style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF92400E)),
-                        //       ),
-                        //     ],
-                        //   ),
-                        // ),
-                      ],
                       if (showAwaitingText) ...[
                         const SizedBox(height: 8),
                         const Text(
@@ -867,14 +851,14 @@ class _RequestCard extends ConsumerWidget {
                   ),
                 ),
 
-                if (request.assignedStatus != null) ...[ // NEW conditional display
-                  const SizedBox(height: 8), // Spacing between the two status blocks
+                if (request.assignedStatus != null) ...[
+                  const SizedBox(height: 8),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      const Text('Requestor Status', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8))), // New label
+                      const Text('Requestor Status', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
                       const SizedBox(height: 4),
-                      StatusBadge(status: request.assignedStatus!), // Use the new assignedStatus
+                      StatusBadge(status: request.assignedStatus!),
                     ],
                   ),
                 ],
