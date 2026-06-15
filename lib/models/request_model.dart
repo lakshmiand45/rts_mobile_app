@@ -62,6 +62,10 @@ class RequestModel {
   final bool isOwnRequest;
   final bool isClosed;
 
+  // Explicit fields for closure attachments
+  final String? closureFileUrl;
+  final String? closureFileName;
+
   RequestModel({
     required this.id,
     required this.slNo,
@@ -118,6 +122,8 @@ class RequestModel {
     this.isGnRoute = false,
     this.isOwnRequest = false,
     this.isClosed = false,
+    this.closureFileUrl,
+    this.closureFileName,
   });
 
   String? get assignedDepartment => (assignedDepartments != null && assignedDepartments!.isNotEmpty)
@@ -166,32 +172,42 @@ class RequestModel {
       status = RequestStatus.resolved;
     }
 
+    // --- SEPARATION OF INITIAL VS CLOSURE FILES ---
     String? resNote;
-    dynamic rawUrl;
-    String? fileName;
-    List<String>? multiUrls;
-    List<String>? multiNames;
-
+    dynamic closureRawUrl;
+    String? closureFileName;
+    
     if (map['closeData'] is Map) {
       final closeData = map['closeData'] as Map<String, dynamic>;
       resNote = closeData['description']?.toString() ?? closeData['resolutionNote']?.toString();
-      rawUrl = closeData['fileUrl'] ?? closeData['filePath'];
-      fileName = closeData['fileName'];
-
-      if (closeData['fileUrls'] is List) {
-        multiUrls = (closeData['fileUrls'] as List).map((e) => _normalizeUrl(e) ?? '').where((e) => e.isNotEmpty).toList();
-      }
-      if (closeData['fileNames'] is List) {
-        multiNames = List<String>.from(closeData['fileNames']);
-      }
+      closureRawUrl = closeData['fileUrl'] ?? closeData['filePath'];
+      closureFileName = closeData['fileName'];
     }
+    
+    final String? normalizedClosureUrl = _normalizeUrl(closureRawUrl);
+
+    List<String>? initialUrls;
+    List<String>? initialNames;
 
     if (map['fileUrls'] is List) {
-      multiUrls ??= (map['fileUrls'] as List).map((e) => _normalizeUrl(e) ?? '').where((e) => e.isNotEmpty).toList();
+      initialUrls = (map['fileUrls'] as List).map((e) => _normalizeUrl(e) ?? '').where((e) => e.isNotEmpty).toList();
     }
     if (map['fileNames'] is List) {
-      multiNames ??= List<String>.from(map['fileNames']);
+      initialNames = List<String>.from(map['fileNames']);
     }
+
+    // If the closure file is mixed in the initial list, filter it out
+    if (initialUrls != null && normalizedClosureUrl != null) {
+      int indexToRemove = initialUrls.indexOf(normalizedClosureUrl);
+      if (indexToRemove != -1) {
+        initialUrls.removeAt(indexToRemove);
+        if (initialNames != null && initialNames.length > indexToRemove) {
+          initialNames.removeAt(indexToRemove);
+        }
+      }
+    }
+
+    // --- END SEPARATION ---
 
     List<String>? depts;
     final rawDept = map['assignedDept'] ?? map['assigned_dept'] ?? map['assignedDepts'];
@@ -281,11 +297,11 @@ class RequestModel {
       overallStatusDate: _parseDateNullable(map['resolvedDate'] ?? map['updated_at']),
       isRead: map['seen'] ?? map['is_read'] ?? false,
       unreadChatCount: 0,
-      attachedFileName: fileName ?? map['fileName'],
-      attachedFileUrl: _normalizeUrl(rawUrl ?? map['fileUrl']),
+      attachedFileName: map['fileName'], // root fileName
+      attachedFileUrl: _normalizeUrl(map['fileUrl']), // root fileUrl
       resolutionNote: resNote,
-      fileUrls: multiUrls,
-      fileNames: multiNames,
+      fileUrls: initialUrls,
+      fileNames: initialNames,
       isForwarded: map['forwarded'] == true,
       forwardedBy: map['forwardedBy']?.toString(),
       forwardedFromDept: map['forwardedFromDept']?.toString(),
@@ -302,6 +318,8 @@ class RequestModel {
       isGnRoute: map['isGnRoute'] == true,
       isOwnRequest: map['isOwnRequest'] == true,
       isClosed: isActuallyClosed,
+      closureFileUrl: normalizedClosureUrl,
+      closureFileName: closureFileName,
     );
   }
 
@@ -447,6 +465,8 @@ class RequestModel {
     bool? isGnRoute,
     bool? isOwnRequest,
     bool? isClosed,
+    String? closureFileUrl,
+    String? closureFileName,
   }) {
     return RequestModel(
       id: id ?? this.id,
@@ -504,6 +524,8 @@ class RequestModel {
       isGnRoute: isGnRoute ?? this.isGnRoute,
       isOwnRequest: isOwnRequest ?? this.isOwnRequest,
       isClosed: isClosed ?? this.isClosed,
+      closureFileUrl: closureFileUrl ?? this.closureFileUrl,
+      closureFileName: closureFileName ?? this.closureFileName,
     );
   }
 }

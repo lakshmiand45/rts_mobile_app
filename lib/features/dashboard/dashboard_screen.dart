@@ -832,7 +832,7 @@ class _RequestCard extends ConsumerWidget {
                     children: [
                       Text(request.userName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
                       const SizedBox(height: 8),
-                      Text("REQUEST TITLE: ${request.title}", style: const TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+                      Text("Request Title: ${request.title}", style: const TextStyle(fontSize: 13, color: Color(0xFF1E293B))),
                       Text(request.department, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B))),
                       Text(request.location, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B))),
                       if (showAwaitingText) ...[

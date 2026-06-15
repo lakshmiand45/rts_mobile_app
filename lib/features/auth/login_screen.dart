@@ -2,10 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../providers/auth_provider.dart';
-import '../dashboard/dashboard_screen.dart';
-import '../food_request/food_request_screen.dart';
+import 'loading_screen.dart';
 import 'reset_password_screen.dart';
-import 'role_selection_screen.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -61,25 +59,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
       if (result['success']) {
         await _saveEmail(email);
-        if (result['needsRoleSelection'] == true) {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (context) => const RoleSelectionScreen()),
-          );
-        } else {
-          final user = ref.read(authProvider).user;
-          final role = user?.role.toLowerCase();
-          
-          // Direct Interns to FoodRequestScreen as requested
-          if (role == 'intern' || role == 'interns') {
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (context) => const FoodRequestScreen()),
-            );
-          } else {
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (context) => const DashboardScreen()),
-            );
-          }
-        }
+        final user = ref.read(authProvider).user;
+        
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (context) => LoadingScreen(
+              loginResult: result,
+              role: user?.role,
+            ),
+          ),
+        );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(result['message'] ?? 'Login failed'), backgroundColor: Colors.red),

@@ -310,6 +310,7 @@ class _FoodSubscriptionScreenState extends ConsumerState<FoodSubscriptionScreen>
                     ),
                     if (status.startDate != null)
                       Text('Opted in since ${DateFormat('dd MMM yyyy').format(status.startDate!)}', style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                    Text('Any changes for next week can be made only before Saturday 6:30 PM of the current week.'),
                   ],
                 ),
               ),
@@ -337,7 +338,7 @@ class _FoodSubscriptionScreenState extends ConsumerState<FoodSubscriptionScreen>
             // Button 1: Cancel Next Week / Undo Skip
             Expanded(
               child: _buildStatefulButton(
-                label: isCancelledNextWeek ? "Undo Skip" : "Cancel Next Week",
+                label: isCancelledNextWeek ? "Undo Skip" : "Skip Next Week",
                 icon: isCancelledNextWeek && !canCancelNow ? Icons.lock : Icons.calendar_today,
                 color: isCancelledNextWeek ? Colors.green : Colors.amber,
                 isLocked: isCancelledNextWeek && !canCancelNow,
@@ -358,7 +359,7 @@ class _FoodSubscriptionScreenState extends ConsumerState<FoodSubscriptionScreen>
             // Button 3: Enable Next Week / Undo Resume
             Expanded(
               child: _buildStatefulButton(
-                label: isEnabledNextWeekOnly ? "Undo Resume" : "Enable Next Week",
+                label: isEnabledNextWeekOnly ? "Undo Resume" : "Resume Next Week",
                 icon: isEnabledNextWeekOnly && !canCancelNow ? Icons.lock : Icons.event_available,
                 color: isEnabledNextWeekOnly ? Colors.green : Colors.blue,
                 isLocked: isEnabledNextWeekOnly && !canCancelNow,
@@ -383,7 +384,7 @@ class _FoodSubscriptionScreenState extends ConsumerState<FoodSubscriptionScreen>
             // Button 2: Disable Year / Undo Year Pause
             Expanded(
               child: _buildStatefulButton(
-                label: isBulkSuspendedNextWeek ? "Undo Year Pause" : "Disable Year",
+                label: isBulkSuspendedNextWeek ? "Undo Year Pause" : "Pause for the Year",
                 icon: isBulkSuspendedNextWeek && !canCancelNow ? Icons.lock : Icons.calendar_month,
                 color: isBulkSuspendedNextWeek ? Colors.green : Colors.red,
                 isLocked: (isBulkSuspendedNextWeek && !canCancelNow) || isEnabledNextWeekOnly,
@@ -403,7 +404,7 @@ class _FoodSubscriptionScreenState extends ConsumerState<FoodSubscriptionScreen>
             // Button 4: Enable Year
             Expanded(
               child: _buildStatefulButton(
-                label: "Enable Year",
+                label: "Resume for the Year",
                 icon: Icons.calendar_today_rounded,
                 color: Colors.green,
                 isDisabled: isActive && !isSuspended,
