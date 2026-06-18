@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
+import 'chat_model.dart';
 
 enum RequestStatus { open, approved, rejected, pending, checking, closed, resolved, forwarded }
 
@@ -43,7 +44,7 @@ class RequestModel {
   final String? resolutionNote;
   final List<String>? fileUrls;
   final List<String>? fileNames;
-  
+
   // New fields from backend response
   final bool isForwarded;
   final String? forwardedBy;
@@ -61,6 +62,7 @@ class RequestModel {
   final bool isGnRoute;
   final bool isOwnRequest;
   final bool isClosed;
+  final List<ChatModel> chatMessages;
 
   // Explicit fields for closure attachments
   final String? closureFileUrl;
@@ -122,6 +124,7 @@ class RequestModel {
     this.isGnRoute = false,
     this.isOwnRequest = false,
     this.isClosed = false,
+    this.chatMessages = const [],
     this.closureFileUrl,
     this.closureFileName,
   });
@@ -133,7 +136,7 @@ class RequestModel {
   factory RequestModel.fromMap(Map<String, dynamic> map) {
     String? rawStatus = (map['status'] ?? map['assignedStatus'] ?? map['overallStatus'])?.toString();
     RequestStatus status = _parseStatus(rawStatus);
-    
+
     final rmStatus = _parseStatus(map['rmStatus'] ?? map['rm_status']);
     final hodStatus = _parseStatus(map['hodStatus'] ?? map['hod_status']);
     final assignedRmStatus = _parseStatus(map['assignedRmStatus'] ?? map['assigned_rm_status']);
@@ -145,30 +148,30 @@ class RequestModel {
     DateTime? extractedDeadline = _parseDateNullable(map['checkingDeadline'] ?? map['checking_deadline']);
     String? extractedReason = (map['checkingReason'] ?? map['checkingDeadlineReason'] ?? map['checking_deadline_reason'] ?? map['checking_reason'])?.toString();
 
-    if (status != RequestStatus.closed && 
-        status != RequestStatus.resolved && 
-        status != RequestStatus.rejected && 
-        (rmStatus == RequestStatus.checking || 
-         hodStatus == RequestStatus.checking || 
-         assignedRmStatus == RequestStatus.checking ||
-         assignedHodStatus == RequestStatus.checking ||
-         deptHodStatus == RequestStatus.checking ||
-         extractedDeadline != null)) {
+    if (status != RequestStatus.closed &&
+        status != RequestStatus.resolved &&
+        status != RequestStatus.rejected &&
+        (rmStatus == RequestStatus.checking ||
+            hodStatus == RequestStatus.checking ||
+            assignedRmStatus == RequestStatus.checking ||
+            assignedHodStatus == RequestStatus.checking ||
+            deptHodStatus == RequestStatus.checking ||
+            extractedDeadline != null)) {
       status = RequestStatus.checking;
     }
 
-    bool isActuallyClosed = map['isClosed'] == true || 
-                            rawStatus?.toLowerCase() == 'received' ||
-                            rawStatus?.toLowerCase() == 'fully closed' || 
-                            rawStatus?.toLowerCase() == 'closed and finalized';
+    bool isActuallyClosed = map['isClosed'] == true ||
+        rawStatus?.toLowerCase() == 'received' ||
+        rawStatus?.toLowerCase() == 'fully closed' ||
+        rawStatus?.toLowerCase() == 'closed and finalized';
 
     if (isActuallyClosed) {
       status = RequestStatus.closed;
     } else if (rawStatus?.toLowerCase() == 'not received') {
       status = RequestStatus.open;
-    } else if (rawStatus?.toLowerCase() == 'closed' || 
-               (rawStatus?.toLowerCase().contains('acknowledgement') == true && rawStatus?.toLowerCase() != 'received') ||
-               rawStatus?.toLowerCase() == 'resolved') {
+    } else if (rawStatus?.toLowerCase() == 'closed' ||
+        (rawStatus?.toLowerCase().contains('acknowledgement') == true && rawStatus?.toLowerCase() != 'received') ||
+        rawStatus?.toLowerCase() == 'resolved') {
       status = RequestStatus.resolved;
     }
 
@@ -176,14 +179,14 @@ class RequestModel {
     String? resNote;
     dynamic closureRawUrl;
     String? closureFileName;
-    
+
     if (map['closeData'] is Map) {
       final closeData = map['closeData'] as Map<String, dynamic>;
       resNote = closeData['description']?.toString() ?? closeData['resolutionNote']?.toString();
       closureRawUrl = closeData['fileUrl'] ?? closeData['filePath'];
       closureFileName = closeData['fileName'];
     }
-    
+
     final String? normalizedClosureUrl = _normalizeUrl(closureRawUrl);
 
     List<String>? initialUrls;
@@ -196,7 +199,6 @@ class RequestModel {
       initialNames = List<String>.from(map['fileNames']);
     }
 
-    // If the closure file is mixed in the initial list, filter it out
     if (initialUrls != null && normalizedClosureUrl != null) {
       int indexToRemove = initialUrls.indexOf(normalizedClosureUrl);
       if (indexToRemove != -1) {
@@ -206,8 +208,6 @@ class RequestModel {
         }
       }
     }
-
-    // --- END SEPARATION ---
 
     List<String>? depts;
     final rawDept = map['assignedDept'] ?? map['assigned_dept'] ?? map['assignedDepts'];
@@ -264,6 +264,11 @@ class RequestModel {
       deepSearch(map);
     }
 
+    List<ChatModel> chatMsgs = [];
+    if (map['chatMessages'] is List) {
+      chatMsgs = (map['chatMessages'] as List).map((e) => ChatModel.fromMap(e as Map<String, dynamic>)).toList();
+    }
+
     return RequestModel(
       id: map['id']?.toString() ?? '',
       slNo: map['slNo']?.toString() ?? map['id']?.toString() ?? '',
@@ -297,8 +302,8 @@ class RequestModel {
       overallStatusDate: _parseDateNullable(map['resolvedDate'] ?? map['updated_at']),
       isRead: map['seen'] ?? map['is_read'] ?? false,
       unreadChatCount: 0,
-      attachedFileName: map['fileName'], // root fileName
-      attachedFileUrl: _normalizeUrl(map['fileUrl']), // root fileUrl
+      attachedFileName: map['fileName'],
+      attachedFileUrl: _normalizeUrl(map['fileUrl']),
       resolutionNote: resNote,
       fileUrls: initialUrls,
       fileNames: initialNames,
@@ -318,6 +323,7 @@ class RequestModel {
       isGnRoute: map['isGnRoute'] == true,
       isOwnRequest: map['isOwnRequest'] == true,
       isClosed: isActuallyClosed,
+      chatMessages: chatMsgs,
       closureFileUrl: normalizedClosureUrl,
       closureFileName: closureFileName,
     );
@@ -465,6 +471,7 @@ class RequestModel {
     bool? isGnRoute,
     bool? isOwnRequest,
     bool? isClosed,
+    List<ChatModel>? chatMessages,
     String? closureFileUrl,
     String? closureFileName,
   }) {
@@ -524,6 +531,7 @@ class RequestModel {
       isGnRoute: isGnRoute ?? this.isGnRoute,
       isOwnRequest: isOwnRequest ?? this.isOwnRequest,
       isClosed: isClosed ?? this.isClosed,
+      chatMessages: chatMessages ?? this.chatMessages,
       closureFileUrl: closureFileUrl ?? this.closureFileUrl,
       closureFileName: closureFileName ?? this.closureFileName,
     );

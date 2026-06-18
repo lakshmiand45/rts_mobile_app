@@ -12,6 +12,7 @@ import 'package:rts/providers/auth_provider.dart';
 import 'package:rts/models/user_model.dart';
 import 'package:rts/providers/push_notification_provider.dart';
 import 'package:rts/core/services/api_service.dart';
+import 'package:rts/core/services/auth_api.dart'; // Import AuthApi
 import 'package:rts/core/services/push_notifications_api.dart'; // Import PushNotificationsApi
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -83,6 +84,7 @@ void main() {
   testWidgets('App renders LoginScreen without crashing in test mode', (WidgetTester tester) async {
     // Create mock instances
     final mockApiService = MockApiService();
+    final mockAuthApi = AuthApi(mockApiService); // Create AuthApi with mock service
     final mockPushNotificationsApi = MockPushNotificationsApi(mockApiService);
     final mockNavigatorKey = GlobalKey<NavigatorState>(); // Create a mock navigator key
 
@@ -92,7 +94,7 @@ void main() {
         overrides: [
           apiServiceProvider.overrideWithValue(mockApiService), // Override apiServiceProvider itself
           authProvider.overrideWith(
-            (ref) => AuthNotifier(mockApiService),
+            (ref) => AuthNotifier(mockAuthApi), // Pass mockAuthApi instead of mockApiService
           ),
           pushNotificationsApiProvider.overrideWithValue(mockPushNotificationsApi), // Override pushNotificationsApiProvider
           pushNotificationProvider.overrideWith(

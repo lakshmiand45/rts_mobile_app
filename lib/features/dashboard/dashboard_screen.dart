@@ -6,6 +6,7 @@ import '../../models/request_model.dart';
 import '../../models/user_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/request_provider.dart';
+import '../../providers/role_management_provider.dart';
 import '../../providers/food_provider.dart';
 import '../../core/services/api_service.dart';
 import '../../core/widgets/status_badge.dart';
@@ -37,7 +38,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(foodProvider.notifier).refreshAll(isSilent: true);
-      ref.read(requestProvider.notifier).fetchRequests();
+      final role = ref.read(authProvider).user?.role.toLowerCase() ?? '';
+      if (role.contains('management')) {
+        ref.read(roleManagementProvider.notifier).fetchFilters();
+        ref.read(roleManagementProvider.notifier).fetchRequests();
+      } else {
+        ref.read(requestProvider.notifier).fetchRequests();
+      }
     });
   }
 
@@ -48,16 +55,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     super.dispose();
   }
 
-  void _onSearchChanged(String query) {
+  void _onSearchChanged(String query, bool isManagement) {
     if (_debounce?.isActive ?? false) _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 300), () {
-      ref.read(requestProvider.notifier).updateFilters(search: query);
+      if (isManagement) {
+        ref.read(roleManagementProvider.notifier).updateFilters(search: query);
+      } else {
+        ref.read(requestProvider.notifier).updateFilters(search: query);
+      }
     });
   }
 
-  void _clearSearch() {
+  void _clearSearch(bool isManagement) {
     _searchController.clear();
-    _onSearchChanged('');
+    _onSearchChanged('', isManagement);
     setState(() {});
   }
 
@@ -68,7 +79,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Future<void> _refreshData() async {
-    await ref.read(requestProvider.notifier).fetchRequests(page: 1);
+    final role = ref.read(authProvider).user?.role.toLowerCase() ?? '';
+    if (role.contains('management')) {
+      await ref.read(roleManagementProvider.notifier).fetchFilters();
+      await ref.read(roleManagementProvider.notifier).fetchRequests(page: 1);
+    } else {
+      await ref.read(requestProvider.notifier).fetchRequests(page: 1);
+    }
     await ref.read(foodProvider.notifier).refreshAll(isSilent: true);
   }
 
@@ -99,23 +116,27 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final state = ref.watch(requestProvider);
     final authState = ref.watch(authProvider);
     final currentUser = authState.user;
-    final bool isManagement = currentUser?.role.toLowerCase() == 'management';
+    final bool isManagement = currentUser?.role.toLowerCase().contains('management') ?? false;
+
+    final standardState = ref.watch(requestProvider);
+    final mgmtState = ref.watch(roleManagementProvider);
+
+    // Common accessors
+    final requests = isManagement ? mgmtState.requests : standardState.requests;
+    final isLoading = isManagement ? mgmtState.isLoading : standardState.isLoading;
+    final totalItems = isManagement ? mgmtState.totalItems : standardState.totalItems;
+    final totalPages = isManagement ? mgmtState.totalPages : standardState.totalPages;
+    final currentPage = isManagement ? mgmtState.currentPage : standardState.currentPage;
+    final hasNext = isManagement ? mgmtState.hasNext : standardState.hasNext;
+    final hasPrev = isManagement ? mgmtState.hasPrev : standardState.hasPrev;
+
     final bool isRM = currentUser?.role.toLowerCase() == 'rm';
     final bool isHOD = currentUser?.role.toLowerCase() == 'hod';
     final bool isDeptHOD = currentUser?.role.toLowerCase() == 'depthod';
 
     final bool canAddRequest = !(isRM || isHOD || isDeptHOD || isManagement);
-
-    final bool hasActiveFilters = state.selectedName != null ||
-        state.selectedDept != null ||
-        state.selectedAssignedDept != null ||
-        state.selectedStatuses.isNotEmpty ||
-        state.selectedDate != null ||
-        state.search.isNotEmpty ||
-        state.scope != 'all';
 
     return Scaffold(
       key: _scaffoldKey,
@@ -247,7 +268,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       ),
                       child: TextField(
                         controller: _searchController,
-                        onChanged: _onSearchChanged,
+                        onChanged: (val) => _onSearchChanged(val, isManagement),
                         decoration: InputDecoration(
                           hintText: 'Search anything....',
                           hintStyle: const TextStyle(color: Color(0xFF94A3B8)),
@@ -255,7 +276,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           suffixIcon: _searchController.text.isNotEmpty
                               ? IconButton(
                                   icon: const Icon(Icons.clear, color: Color(0xFF94A3B8)),
-                                  onPressed: _clearSearch,
+                                  onPressed: () => _clearSearch(isManagement),
                                 )
                               : null,
                           border: InputBorder.none,
@@ -303,26 +324,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       child: SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
                         child: Row(
-                          children: [
-                            if (state.scope != 'all')
-                              _buildFilterChip(_getDisplayScope(state.scope), () {
-                                ref.read(requestProvider.notifier).updateFilters(scope: 'all');
-                              }),
-                            // if (isManagement && !hasActiveFilters)
-                            //   _buildFilterChip('HOD Pending', () {}, showClose: false),
-                            if (state.selectedName != null)
-                              _buildFilterChip(state.selectedName!, () => ref.read(requestProvider.notifier).updateFilters(clearName: true)),
-                            if (state.selectedDept != null)
-                              _buildFilterChip(state.selectedDept!, () => ref.read(requestProvider.notifier).updateFilters(clearDept: true)),
-                            if (state.selectedAssignedDept != null)
-                              _buildFilterChip(state.selectedAssignedDept!, () => ref.read(requestProvider.notifier).updateFilters(clearAssignedDept: true)),
-                            if (state.selectedDate != null)
-                              _buildFilterChip(state.selectedDate!, () => ref.read(requestProvider.notifier).updateFilters(clearDate: true)),
-                            ...state.selectedStatuses.map((s) => _buildFilterChip(s, () {
-                              final newList = List<String>.from(state.selectedStatuses)..remove(s);
-                              ref.read(requestProvider.notifier).updateFilters(statuses: newList);
-                            })),
-                          ],
+                          children: isManagement 
+                            ? _buildManagementFilterChips(mgmtState)
+                            : _buildStandardFilterChips(standardState),
                         ),
                       ),
                     ),
@@ -352,7 +356,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     ),
                   ),
                   Text(
-                    '${state.totalItems}',
+                    '$totalItems',
                     style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w900,
@@ -371,17 +375,17 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 child: Stack(
                   children: [
                     Opacity(
-                      opacity: state.isLoading ? 0.5 : 1.0,
+                      opacity: isLoading ? 0.5 : 1.0,
                       child: ListView.builder(
                         physics: const AlwaysScrollableScrollPhysics(),
                         padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemCount: state.requests.length,
-                        itemBuilder: (context, index) => _RequestCard(request: state.requests[index]),
+                        itemCount: requests.length,
+                        itemBuilder: (context, index) => _RequestCard(request: requests[index]),
                       ),
                     ),
-                    if (state.isLoading)
+                    if (isLoading)
                       const Center(child: CircularProgressIndicator()),
-                    if (!state.isLoading && state.requests.isEmpty)
+                    if (!isLoading && requests.isEmpty)
                       Center(
                         child: SingleChildScrollView(
                           physics: const AlwaysScrollableScrollPhysics(),
@@ -397,21 +401,29 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ),
             ),
 
-            if (!state.isLoading && state.totalPages > 1)
+            if (!isLoading && totalPages > 1)
               Container(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 color: Colors.white,
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    _buildPageButton('Prev', state.hasPrev ? () {
-                      ref.read(requestProvider.notifier).fetchRequests(page: state.currentPage - 1);
+                    _buildPageButton('Prev', hasPrev ? () {
+                      if (isManagement) {
+                        ref.read(roleManagementProvider.notifier).fetchRequests(page: currentPage - 1);
+                      } else {
+                        ref.read(requestProvider.notifier).fetchRequests(page: currentPage - 1);
+                      }
                     } : null),
                     const SizedBox(width: 8),
-                    ..._buildPageNumbers(state),
+                    ..._buildPageNumbers(currentPage, totalPages, isManagement),
                     const SizedBox(width: 8),
-                    _buildPageButton('Next', state.hasNext ? () {
-                      ref.read(requestProvider.notifier).fetchRequests(page: state.currentPage + 1);
+                    _buildPageButton('Next', hasNext ? () {
+                      if (isManagement) {
+                        ref.read(roleManagementProvider.notifier).fetchRequests(page: currentPage + 1);
+                      } else {
+                        ref.read(requestProvider.notifier).fetchRequests(page: currentPage + 1);
+                      }
                     } : null),
                   ],
                 ),
@@ -420,6 +432,50 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         ),
       ),
     );
+  }
+
+  List<Widget> _buildStandardFilterChips(PaginatedRequestState state) {
+    return [
+      if (state.scope != 'all')
+        _buildFilterChip(_getDisplayScope(state.scope), () {
+          ref.read(requestProvider.notifier).updateFilters(scope: 'all');
+        }),
+      if (state.selectedName != null)
+        _buildFilterChip(state.selectedName!, () => ref.read(requestProvider.notifier).updateFilters(clearName: true)),
+      if (state.selectedDept != null)
+        _buildFilterChip(state.selectedDept!, () => ref.read(requestProvider.notifier).updateFilters(clearDept: true)),
+      if (state.selectedAssignedDept != null)
+        _buildFilterChip(state.selectedAssignedDept!, () => ref.read(requestProvider.notifier).updateFilters(clearAssignedDept: true)),
+      if (state.selectedDate != null)
+        _buildFilterChip(state.selectedDate!, () => ref.read(requestProvider.notifier).updateFilters(clearDate: true)),
+      if (state.startDate != null)
+        _buildFilterChip('From: ${state.startDate}', () => ref.read(requestProvider.notifier).updateFilters(clearRange: true)),
+      if (state.endDate != null)
+        _buildFilterChip('To: ${state.endDate}', () => ref.read(requestProvider.notifier).updateFilters(clearRange: true)),
+      ...state.selectedStatuses.map((s) => _buildFilterChip(s, () {
+        final newList = List<String>.from(state.selectedStatuses)..remove(s);
+        ref.read(requestProvider.notifier).updateFilters(statuses: newList);
+      })),
+    ];
+  }
+//For Maanagement Role
+  List<Widget> _buildManagementFilterChips(RoleManagementState state) {
+    return [
+      if (state.selectedName != null)
+        _buildFilterChip(state.selectedName!, () => ref.read(roleManagementProvider.notifier).updateFilters(resetName: true)),
+      if (state.selectedRequestorDept != null)
+        _buildFilterChip(state.selectedRequestorDept!, () => ref.read(roleManagementProvider.notifier).updateFilters(resetRequestorDept: true)),
+      if (state.selectedAssignedDept != null)
+        _buildFilterChip(state.selectedAssignedDept!, () => ref.read(roleManagementProvider.notifier).updateFilters(resetAssignedDept: true)),
+      if (state.selectedHodStatus != null)
+        _buildFilterChip('HOD: ${state.selectedHodStatus}', () => ref.read(roleManagementProvider.notifier).updateFilters(resetHodStatus: true)),
+      if (state.selectedRmStatus != null)
+        _buildFilterChip('RM: ${state.selectedRmStatus}', () => ref.read(roleManagementProvider.notifier).updateFilters(resetRmStatus: true)),
+      if (state.startDate != null)
+        _buildFilterChip('From: ${state.startDate}', () => ref.read(roleManagementProvider.notifier).updateFilters(clearRange: true)),
+      if (state.endDate != null)
+        _buildFilterChip('To: ${state.endDate}', () => ref.read(roleManagementProvider.notifier).updateFilters(clearRange: true)),
+    ];
   }
 
   Widget _buildEndDrawer(UserModel? currentUser, bool canAddRequest) {
@@ -569,21 +625,27 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  List<Widget> _buildPageNumbers(PaginatedRequestState state) {
+  List<Widget> _buildPageNumbers(int current, int total, bool isManagement) {
     List<Widget> buttons = [];
-    for (int i = 1; i <= state.totalPages; i++) {
-      if (i == 1 || i == state.totalPages || (i >= state.currentPage - 1 && i <= state.currentPage + 1)) {
-        buttons.add(_buildPageNumber(i, i == state.currentPage));
-      } else if (i == state.currentPage - 2 || i == state.currentPage + 2) {
+    for (int i = 1; i <= total; i++) {
+      if (i == 1 || i == total || (i >= current - 1 && i <= current + 1)) {
+        buttons.add(_buildPageNumber(i, i == current, isManagement));
+      } else if (i == current - 2 || i == current + 2) {
         buttons.add(const Text('...', style: TextStyle(color: Colors.grey)));
       }
     }
     return buttons;
   }
 
-  Widget _buildPageNumber(int page, bool isSelected) {
+  Widget _buildPageNumber(int page, bool isSelected, bool isManagement) {
     return GestureDetector(
-      onTap: isSelected ? null : () => ref.read(requestProvider.notifier).fetchRequests(page: page),
+      onTap: isSelected ? null : () {
+        if (isManagement) {
+          ref.read(roleManagementProvider.notifier).fetchRequests(page: page);
+        } else {
+          ref.read(requestProvider.notifier).fetchRequests(page: page);
+        }
+      },
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 4),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -632,120 +694,221 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   void _showFilterOptions(BuildContext context, bool isManagement) {
+    // Explicitly trigger filter fetch when the modal is opened
+    if (isManagement) {
+      ref.read(roleManagementProvider.notifier).fetchFilters();
+    }
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (context) {
         return Consumer(builder: (context, ref, _) {
-          final state = ref.watch(requestProvider);
-          final bool hasAnyFilter = state.selectedName != null ||
-              state.selectedDept != null ||
-              state.selectedAssignedDept != null ||
-              state.selectedStatuses.isNotEmpty ||
-              state.selectedDate != null ||
-              state.scope != 'all';
-
-          return StatefulBuilder(builder: (context, setModalState) {
-            return Container(
-              margin: const EdgeInsets.only(left: 16, right: 16, bottom: 40, top: 80),
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(28),
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20, spreadRadius: 5)],
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 20), decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(2)))),
-
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Filter Options', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
-                        if (hasAnyFilter)
-                          TextButton.icon(
-                            onPressed: () {
-                              ref.read(requestProvider.notifier).updateFilters(
-                                clearName: true,
-                                clearDept: true,
-                                clearAssignedDept: true,
-                                clearDate: true,
-                                clearStatus: true,
-                                scope: 'all',
-                              );
-                            },
-                            icon: const Icon(Icons.refresh, size: 18, color: Colors.red),
-                            label: const Text('Clear All', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-
-                    _buildFilterDropdownField('Request type', _getDisplayScope(state.scope), ['Request type', 'Sent', 'Received'], (val) {
-                      String newScope = 'all';
-                      if (val == 'Sent') newScope = 'sent';
-                      if (val == 'Received') newScope = 'received';
-                      ref.read(requestProvider.notifier).updateFilters(scope: newScope);
-                    }, onClear: state.scope != 'all' ? () => ref.read(requestProvider.notifier).updateFilters(scope: 'all') : null),
-                    const SizedBox(height: 16),
-
-                    _buildFilterDropdownField('Requestor Name', state.selectedName, state.filterNames, (val) {
-                      ref.read(requestProvider.notifier).updateFilters(name: val);
-                    }, onClear: state.selectedName != null ? () => ref.read(requestProvider.notifier).updateFilters(clearName: true) : null),
-                    const SizedBox(height: 16),
-
-                    _buildFilterDropdownField('Requestor Department', state.selectedDept, state.filterDepts, (val) {
-                      ref.read(requestProvider.notifier).updateFilters(dept: val);
-                    }, onClear: state.selectedDept != null ? () => ref.read(requestProvider.notifier).updateFilters(clearDept: true) : null),
-                    const SizedBox(height: 16),
-
-                    _buildFilterDropdownField('Assigned Department', state.selectedAssignedDept, state.filterAssignedDepts, (val) {
-                      ref.read(requestProvider.notifier).updateFilters(assignedDept: val);
-                    }, onClear: state.selectedAssignedDept != null ? () => ref.read(requestProvider.notifier).updateFilters(clearAssignedDept: true) : null),
-                    const SizedBox(height: 16),
-
-                    _buildFilterDropdownField('All Statuses', state.selectedStatuses.isNotEmpty ? state.selectedStatuses.first : null, state.filterStatuses, (val) {
-                      ref.read(requestProvider.notifier).updateFilters(statuses: val != null ? [val] : []);
-                      }, onClear: state.selectedStatuses.isNotEmpty ? () => ref.read(requestProvider.notifier).updateFilters(clearStatus: true) : null),
-                    const SizedBox(height: 16),
-
-                    GestureDetector(
-                      onTap: () async {
-                        final DateTime? picked = await showDatePicker(context: context, initialDate: DateTime.now(), firstDate: DateTime(2020), lastDate: DateTime(2030));
-                        if (picked != null) {
-                          ref.read(requestProvider.notifier).updateFilters(date: DateFormat('yyyy-MM-dd').format(picked));
-                        }
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE2E8F0))),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Expanded(child: Text(state.selectedDate ?? 'mm / dd / yyyy', style: const TextStyle(color: Color(0xFF1E293B), fontSize: 14))),
-                            if (state.selectedDate != null)
-                              GestureDetector(
-                                onTap: () => ref.read(requestProvider.notifier).updateFilters(clearDate: true),
-                                child: const Icon(Icons.close, size: 18, color: Color(0xFF94A3B8)),
-                              )
-                            else
-                              const Icon(Icons.calendar_today_outlined, color: Color(0xFFCBD5E1), size: 20),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    SizedBox(width: double.infinity, child: ElevatedButton(onPressed: () => Navigator.pop(context), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF5C59E8), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Close Filters', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)))),
-                  ],
-                ),
-              ),
-            );
-          });
+          if (isManagement) {
+            final state = ref.watch(roleManagementProvider);
+            return _buildManagementFilterSheet(context, ref, state);
+          } else {
+            final state = ref.watch(requestProvider);
+            return _buildStandardFilterSheet(context, ref, state);
+          }
         });
       },
+    );
+  }
+
+  Future<void> _selectDateRange(BuildContext context, bool isManagement) async {
+    final DateTimeRange? picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF5C59E8),
+              onPrimary: Colors.white,
+              onSurface: Color(0xFF1E293B),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      final start = DateFormat('yyyy-MM-dd').format(picked.start);
+      final end = DateFormat('yyyy-MM-dd').format(picked.end);
+      if (isManagement) {
+        ref.read(roleManagementProvider.notifier).updateFilters(startDate: start, endDate: end);
+      } else {
+        ref.read(requestProvider.notifier).updateFilters(startDate: start, endDate: end);
+      }
+    }
+  }
+
+  Widget _buildStandardFilterSheet(BuildContext context, WidgetRef ref, PaginatedRequestState state) {
+    final bool hasAnyFilter = state.selectedName != null || state.selectedDept != null || state.selectedAssignedDept != null || state.selectedStatuses.isNotEmpty || state.selectedDate != null || state.scope != 'all' || state.startDate != null;
+    
+    return Container(
+      margin: const EdgeInsets.only(left: 16, right: 16, bottom: 40, top: 80),
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(28), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20, spreadRadius: 5)]),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 20), decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(2)))),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Filter Options', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                if (hasAnyFilter)
+                  TextButton.icon(
+                    onPressed: () => ref.read(requestProvider.notifier).updateFilters(clearName: true, clearDept: true, clearAssignedDept: true, clearDate: true, clearRange: true, clearStatus: true, scope: 'all'),
+                    icon: const Icon(Icons.refresh, size: 18, color: Colors.red),
+                    label: const Text('Clear All', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            _buildFilterDropdownField('Request type', _getDisplayScope(state.scope), ['Request type', 'Sent', 'Received'], (val) {
+              String newScope = 'all';
+              if (val == 'Sent') newScope = 'sent';
+              if (val == 'Received') newScope = 'received';
+              ref.read(requestProvider.notifier).updateFilters(scope: newScope);
+            }, onClear: state.scope != 'all' ? () => ref.read(requestProvider.notifier).updateFilters(scope: 'all') : null),
+            const SizedBox(height: 16),
+            _buildFilterDropdownField('Requestor Name', state.selectedName, state.filterNames, (val) => ref.read(requestProvider.notifier).updateFilters(name: val), onClear: state.selectedName != null ? () => ref.read(requestProvider.notifier).updateFilters(clearName: true) : null),
+            const SizedBox(height: 16),
+            _buildFilterDropdownField('Requestor Department', state.selectedDept, state.filterDepts, (val) => ref.read(requestProvider.notifier).updateFilters(dept: val), onClear: state.selectedDept != null ? () => ref.read(requestProvider.notifier).updateFilters(clearDept: true) : null),
+            const SizedBox(height: 16),
+            _buildFilterDropdownField('Assigned Department', state.selectedAssignedDept, state.filterAssignedDepts, (val) => ref.read(requestProvider.notifier).updateFilters(assignedDept: val), onClear: state.selectedAssignedDept != null ? () => ref.read(requestProvider.notifier).updateFilters(clearAssignedDept: true) : null),
+            const SizedBox(height: 16),
+            _buildFilterDropdownField('Status', state.selectedStatuses.isNotEmpty ? state.selectedStatuses.first : null, state.filterStatuses, (val) => ref.read(requestProvider.notifier).updateFilters(statuses: val != null ? [val] : []), onClear: state.selectedStatuses.isNotEmpty ? () => ref.read(requestProvider.notifier).updateFilters(clearStatus: true) : null),
+            const SizedBox(height: 16),
+            _buildDateRangeSelector(context, state.startDate, state.endDate, false),
+            const SizedBox(height: 24),
+            SizedBox(width: double.infinity, child: ElevatedButton(onPressed: () => Navigator.pop(context), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF5C59E8), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Close Filters', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDateRangeSelector(BuildContext context, String? start, String? end, bool isManagement) {
+    String display = 'Select Date Range';
+    if (start != null && end != null) {
+      display = '$start to $end';
+    }
+    
+    return InkWell(
+      onTap: () => _selectDateRange(context, isManagement),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.calendar_today, size: 18, color: start != null ? const Color(0xFF5C59E8) : const Color(0xFF94A3B8)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                display,
+                style: TextStyle(
+                  color: start != null ? const Color(0xFF1E293B) : const Color(0xFFCBD5E1),
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            if (start != null)
+              IconButton(
+                icon: const Icon(Icons.close, size: 18, color: Color(0xFF94A3B8)),
+                onPressed: () {
+                  if (isManagement) {
+                    ref.read(roleManagementProvider.notifier).updateFilters(clearRange: true);
+                  } else {
+                    ref.read(requestProvider.notifier).updateFilters(clearRange: true);
+                  }
+                },
+                constraints: const BoxConstraints(),
+                padding: EdgeInsets.zero,
+              ),
+            const Icon(Icons.keyboard_arrow_down, color: Color(0xFFCBD5E1)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildManagementFilterSheet(BuildContext context, WidgetRef ref, RoleManagementState state) {
+    final bool hasAnyFilter = state.selectedName != null || state.selectedRequestorDept != null || state.selectedAssignedDept != null || state.selectedHodStatus != null || state.selectedRmStatus != null || state.startDate != null;
+
+    // Type-safe lookup of labels using .where().firstOrNull
+    final hodMatch = state.hodStatuses.where((e) => e['value'] == state.selectedHodStatus).firstOrNull;
+    final selectedHodLabel = hodMatch != null ? hodMatch['label']?.toString() : state.selectedHodStatus;
+        
+    final rmMatch = state.rmStatuses.where((e) => e['value'] == state.selectedRmStatus).firstOrNull;
+    final selectedRmLabel = rmMatch != null ? rmMatch['label']?.toString() : state.selectedRmStatus;
+
+    return Container(
+      margin: const EdgeInsets.only(left: 16, right: 16, bottom: 40, top: 80),
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(28), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20, spreadRadius: 5)]),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 20), decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(2)))),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Management Filters', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                if (hasAnyFilter)
+                  TextButton.icon(
+                    onPressed: () => ref.read(roleManagementProvider.notifier).updateFilters(clearAll: true),
+                    icon: const Icon(Icons.refresh, size: 18, color: Colors.red),
+                    label: const Text('Clear All', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            _buildFilterDropdownField('Requestor Name', state.selectedName, state.names,
+              (val) => ref.read(roleManagementProvider.notifier).updateFilters(name: val),
+              onClear: state.selectedName != null ? () => ref.read(roleManagementProvider.notifier).updateFilters(resetName: true) : null,
+            ),
+            const SizedBox(height: 16),
+            _buildFilterDropdownField('Requestor Dept', state.selectedRequestorDept, state.requestorDepts,
+              (val) => ref.read(roleManagementProvider.notifier).updateFilters(requestorDept: val),
+              onClear: state.selectedRequestorDept != null ? () => ref.read(roleManagementProvider.notifier).updateFilters(resetRequestorDept: true) : null,
+            ),
+            const SizedBox(height: 16),
+            _buildFilterDropdownField('Assigned Dept', state.selectedAssignedDept, state.assignedDepts,
+              (val) => ref.read(roleManagementProvider.notifier).updateFilters(assignedDept: val),
+              onClear: state.selectedAssignedDept != null ? () => ref.read(roleManagementProvider.notifier).updateFilters(resetAssignedDept: true) : null,
+            ),
+            const SizedBox(height: 16),
+            _buildFilterDropdownField('HOD Status', selectedHodLabel, state.hodStatuses.map((e) => e['label'].toString()).toList(), (val) {
+              final match = state.hodStatuses.where((e) => e['label'] == val).firstOrNull;
+              final valKey = match != null ? match['value'] : val;
+              ref.read(roleManagementProvider.notifier).updateFilters(hodStatus: valKey);
+            }, onClear: state.selectedHodStatus != null ? () => ref.read(roleManagementProvider.notifier).updateFilters(resetHodStatus: true) : null),
+            const SizedBox(height: 16),
+            _buildFilterDropdownField('RM Status', selectedRmLabel, state.rmStatuses.map((e) => e['label'].toString()).toList(), (val) {
+              final match = state.rmStatuses.where((e) => e['label'] == val).firstOrNull;
+              final valKey = match != null ? match['value'] : val;
+              ref.read(roleManagementProvider.notifier).updateFilters(rmStatus: valKey);
+            }, onClear: state.selectedRmStatus != null ? () => ref.read(roleManagementProvider.notifier).updateFilters(resetRmStatus: true) : null),
+            const SizedBox(height: 16),
+            _buildDateRangeSelector(context, state.startDate, state.endDate, true),
+            const SizedBox(height: 24),
+            SizedBox(width: double.infinity, child: ElevatedButton(onPressed: () => Navigator.pop(context), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF5C59E8), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Apply Management Filters', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)))),
+          ],
+        ),
+      ),
     );
   }
 
@@ -758,11 +921,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           Expanded(
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(
-                value: items.contains(value) ? value : null,
+                value: (value != null && items.contains(value)) ? value : null,
                 isExpanded: true,
                 icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFFCBD5E1)),
                 hint: Text(label, style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 14)),
-                items: items.map((i) => DropdownMenuItem(value: i, child: Text(i, style: const TextStyle(color: Color(0xFF1E293B))))).toList(),
+                items: items.toSet().map((i) => DropdownMenuItem(value: i, child: Text(i, style: const TextStyle(color: Color(0xFF1E293B))))).toList(),
                 onChanged: onChanged,
               ),
             ),
@@ -788,6 +951,7 @@ class _RequestCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authProvider);
     final user = authState.user;
+    final bool isManagement = user?.role.toLowerCase().contains('management') ?? false;
 
     final bool isUserRequestor = user != null && (
         user.userId.toString().trim() == request.userId.toString().trim() ||
@@ -802,9 +966,12 @@ class _RequestCard extends ConsumerWidget {
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: !request.isRead ? const Color(0xFFEFF6FF) : Colors.white,
+        color: (!request.isRead && !isManagement) ? const Color(0xFFEFF6FF) : Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: !request.isRead ? const Color(0xFFBFDBFE) : const Color(0xFFE2E8F0), width: !request.isRead ? 1.5 : 1.0),
+        border: Border.all(
+            color: (!request.isRead && !isManagement) ? const Color(0xFFBFDBFE) : const Color(0xFFE2E8F0),
+            width: (!request.isRead && !isManagement) ? 1.5 : 1.0
+        ),
       ),
       child: InkWell(
         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => RequestDetailsScreen(ticketId: request.id))),
@@ -817,7 +984,7 @@ class _RequestCard extends ConsumerWidget {
                 Expanded(
                   child: Row(
                     children: [
-                      if (!request.isRead) const Padding(padding: EdgeInsets.only(right: 8.0), child: Icon(Icons.circle, size: 8, color: Color(0xFF5C59E8))),
+                      if (!request.isRead && !isManagement) const Padding(padding: EdgeInsets.only(right: 8.0), child: Icon(Icons.circle, size: 8, color: Color(0xFF5C59E8))),
                       Flexible(
                         child: Text(
                           'Sl.No - ${request.slNo}',
@@ -844,7 +1011,6 @@ class _RequestCard extends ConsumerWidget {
                     ],
                   ),
                 ),
-
               ],
             ),
             const SizedBox(height: 8),
@@ -876,7 +1042,6 @@ class _RequestCard extends ConsumerWidget {
                     ],
                   ),
                 ),
-
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
@@ -886,23 +1051,24 @@ class _RequestCard extends ConsumerWidget {
                       StatusBadge(status: request.assignedStatus!),
                     ],
                     const SizedBox(height: 12),
-                    IconButton(
-                      icon: Icon(
-                        request.isRead ? Icons.visibility : Icons.visibility_off,
-                        color: request.isRead ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-                        size: 24,
+                    if (!isManagement)
+                      IconButton(
+                        icon: Icon(
+                          request.isRead ? Icons.visibility : Icons.visibility_off,
+                          color: request.isRead ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                          size: 24,
+                        ),
+                        onPressed: () {
+                          if (request.isRead) {
+                            ref.read(requestProvider.notifier).markAsUnread(request.id);
+                          } else {
+                            ref.read(requestProvider.notifier).markAsRead(request.id);
+                          }
+                        },
+                        tooltip: request.isRead ? 'Mark as Unread' : 'Mark as Read',
+                        constraints: const BoxConstraints(),
+                        padding: EdgeInsets.zero,
                       ),
-                      onPressed: () {
-                        if (request.isRead) {
-                          ref.read(requestProvider.notifier).markAsUnread(request.id);
-                        } else {
-                          ref.read(requestProvider.notifier).markAsRead(request.id);
-                        }
-                      },
-                      tooltip: request.isRead ? 'Mark as Unread' : 'Mark as Read',
-                      constraints: const BoxConstraints(),
-                      padding: EdgeInsets.zero,
-                    ),
                   ],
                 ),
               ],

@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../../models/request_model.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/request_provider.dart';
+import '../../../providers/role_management_provider.dart';
 
 class CheckingDeadlineModal extends ConsumerStatefulWidget {
   final String ticketId;
@@ -62,21 +63,31 @@ class _CheckingDeadlineModalState extends ConsumerState<CheckingDeadlineModal> {
 
     final authState = ref.read(authProvider);
     final user = authState.user;
+    final bool isManagement = user?.role.toLowerCase() == 'management';
     final role = user?.role.toUpperCase();
-    
-    // Pass the checkingReason parameter to match requestProvider.updateStatus signature
-    final success = await ref.read(requestProvider.notifier).updateStatus(
-      widget.ticketId, 
-      RequestStatus.checking, 
-      comment: '', 
-      isRM: role == 'RM', 
-      isHOD: role == 'HOD',
-      isDeptHOD: role == 'DEPTHOD',
-      isAdmin: role == 'ADMIN',
-      isManagement: role == 'MANAGEMENT',
-      checkingDeadline: _selectedDate, 
-      checkingReason: reason,   // Updated from checkingDeadlineReason to checkingReason
-    );
+
+    bool success;
+    if (isManagement) {
+      success = await ref.read(roleManagementProvider.notifier).checkingRequest(
+        widget.ticketId,
+        comment: 'Checking status set by Management',
+        deadline: _selectedDate!,
+        reason: reason,
+      );
+    } else {
+      success = await ref.read(requestProvider.notifier).updateStatus(
+        widget.ticketId,
+        RequestStatus.checking,
+        comment: '',
+        isRM: role == 'RM',
+        isHOD: role == 'HOD',
+        isDeptHOD: role == 'DEPTHOD',
+        isAdmin: role == 'ADMIN',
+        isManagement: false,
+        checkingDeadline: _selectedDate,
+        checkingReason: reason,
+      );
+    }
 
     if (mounted) {
       setState(() => _isSubmitting = false);
@@ -155,11 +166,11 @@ class _CheckingDeadlineModalState extends ConsumerState<CheckingDeadlineModal> {
                   child: Row(
                     children: [
                       Text(
-                        _selectedDate == null 
-                            ? 'mm / dd / yyyy' 
+                        _selectedDate == null
+                            ? 'mm / dd / yyyy'
                             : DateFormat('MM / dd / yyyy').format(_selectedDate!),
                         style: TextStyle(
-                          fontSize: 14, 
+                          fontSize: 14,
                           color: _selectedDate == null ? Colors.grey : const Color(0xFF1E293B),
                           fontWeight: _selectedDate == null ? FontWeight.normal : FontWeight.bold,
                         ),

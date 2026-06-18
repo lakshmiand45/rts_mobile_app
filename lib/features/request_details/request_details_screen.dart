@@ -11,6 +11,7 @@ import '../../models/chat_model.dart';
 import '../../models/user_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/request_provider.dart';
+import '../../providers/role_management_provider.dart';
 import 'widgets/close_ticket_modal.dart';
 import 'widgets/checking_deadline_modal.dart';
 import 'widgets/approve_choice_modal.dart';
@@ -48,27 +49,46 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
   }
 
   Future<void> _loadInitialData() async {
-    await ref.read(requestProvider.notifier).fetchRequestById(widget.ticketId);
-    ref.read(requestProvider.notifier).markAsRead(widget.ticketId);
-    await ref.read(requestProvider.notifier).fetchChatMessages(widget.ticketId);
+    final role = ref.read(authProvider).user?.role.toLowerCase();
+    
+    if (role == 'management') {
+      await ref.read(roleManagementProvider.notifier).fetchRequestById(widget.ticketId);
+    } else {
+      await ref.read(requestProvider.notifier).fetchRequestById(widget.ticketId);
+      ref.read(requestProvider.notifier).markAsRead(widget.ticketId);
+      await ref.read(requestProvider.notifier).fetchChatMessages(widget.ticketId);
+    }
 
-    final paginatedState = ref.read(requestProvider);
-    final requests = paginatedState.requests;
+    // Determine the current ticket based on the source provider
+    final RequestModel? currentTicket = _getCurrentTicket();
 
-    final currentTicket = requests.firstWhere(
-          (r) => r.id == widget.ticketId || r.slNo == widget.ticketId,
-      orElse: () => requests.isNotEmpty ? requests.first : RequestModel.fromMap({'id': widget.ticketId}),
-    );
-
-    if (mounted) {
+    if (mounted && currentTicket != null) {
       setState(() {
         final String? ticketDept = currentTicket.assignedDepartment;
         if (departments.contains(ticketDept)) {
           selectedDept = ticketDept;
         } else if (currentTicket.assignedDepartments != null && currentTicket.assignedDepartments!.isNotEmpty) {
-           selectedDept = currentTicket.assignedDepartments!.first;
+          final firstAssigned = currentTicket.assignedDepartments!.first;
+          if (departments.contains(firstAssigned)) {
+            selectedDept = firstAssigned;
+          }
         }
       });
+    }
+  }
+
+  RequestModel? _getCurrentTicket() {
+    final role = ref.read(authProvider).user?.role.toLowerCase();
+    if (role == 'management') {
+      final mgmtState = ref.read(roleManagementProvider);
+      try {
+        return mgmtState.requests.firstWhere((r) => r.id == widget.ticketId || r.slNo == widget.ticketId);
+      } catch (_) { return null; }
+    } else {
+      final standardState = ref.read(requestProvider);
+      try {
+        return standardState.requests.firstWhere((r) => r.id == widget.ticketId || r.slNo == widget.ticketId);
+      } catch (_) { return null; }
     }
   }
 
@@ -79,7 +99,10 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
   }
 
   void _showChatBottomSheet() {
-    ref.read(requestProvider.notifier).markChatAsRead(widget.ticketId);
+    final role = ref.read(authProvider).user?.role.toLowerCase();
+    if (role != 'management') {
+      ref.read(requestProvider.notifier).markChatAsRead(widget.ticketId);
+    }
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -95,31 +118,43 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
 
     final authState = ref.read(authProvider);
     final user = authState.user;
+    final bool isManagementRole = user?.role.toLowerCase() == 'management';
     final role = user?.role.toUpperCase();
 
     bool success = false;
     String message = 'Status updated successfully';
 
     try {
-      if (status == RequestStatus.resolved || status == RequestStatus.open) {
-        // Acknowledgement logic
-        final String acknowledgeStatus = (status == RequestStatus.resolved) ? 'Resolved' : 'Not Resolved';
-        success = await ref.read(requestProvider.notifier).acknowledgeRequest(widget.ticketId, acknowledgeStatus);
-        message = (status == RequestStatus.resolved) ? 'Ticket marked as Resolved' : 'Ticket marked as Not Resolved';
-      } else if (status == RequestStatus.closed) {
-        success = await ref.read(requestProvider.notifier).closeTicket(widget.ticketId, resolutionNote ?? 'Ticket closed.');
-        message = 'Ticket closed successfully';
+      if (isManagementRole) {
+        // Specialized Management Actions
+        if (status == RequestStatus.approved) {
+          success = await ref.read(roleManagementProvider.notifier).approveRequest(widget.ticketId, _commentController.text.trim());
+        } else if (status == RequestStatus.rejected) {
+          success = await ref.read(roleManagementProvider.notifier).rejectRequest(widget.ticketId, _commentController.text.trim());
+        } else if (status == RequestStatus.closed) {
+          success = await ref.read(roleManagementProvider.notifier).closeRequest(widget.ticketId, resolutionNote ?? 'Closed by Management');
+        }
       } else {
-        success = await ref.read(requestProvider.notifier).updateStatus(
-            widget.ticketId,
-            status,
-            comment: _commentController.text.trim(),
-            isRM: role == 'RM',
-            isHOD: role == 'HOD',
-            isDeptHOD: role == 'DEPTHOD',
-            isAdmin: role == 'ADMIN',
-            isManagement: role == 'MANAGEMENT'
-        );
+        // Standard Action Logic
+        if (status == RequestStatus.resolved || status == RequestStatus.open) {
+          final String acknowledgeStatus = (status == RequestStatus.resolved) ? 'Resolved' : 'Not Resolved';
+          success = await ref.read(requestProvider.notifier).acknowledgeRequest(widget.ticketId, acknowledgeStatus);
+          message = (status == RequestStatus.resolved) ? 'Ticket marked as Resolved' : 'Ticket marked as Not Resolved';
+        } else if (status == RequestStatus.closed) {
+          success = await ref.read(requestProvider.notifier).closeTicket(widget.ticketId, resolutionNote ?? 'Ticket closed.');
+          message = 'Ticket closed successfully';
+        } else {
+          success = await ref.read(requestProvider.notifier).updateStatus(
+              widget.ticketId,
+              status,
+              comment: _commentController.text.trim(),
+              isRM: role == 'RM',
+              isHOD: role == 'HOD',
+              isDeptHOD: role == 'DEPTHOD',
+              isAdmin: role == 'ADMIN',
+              isManagement: false
+          );
+        }
       }
     } finally {
       if (mounted) {
@@ -145,6 +180,11 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
     final authState = ref.read(authProvider);
     final user = authState.user;
     final role = user?.role.toUpperCase() ?? '';
+
+    if (role == 'MANAGEMENT') {
+      _updateTicketStatus(RequestStatus.approved);
+      return;
+    }
 
     if (role == 'DEPTHOD') {
       final choice = await showDialog<String>(
@@ -211,8 +251,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
         }
       }
     } else if (role == 'HOD') {
-       // HOD popup (Only Approve OR Approve & Forward Dept)
-       final choice = await showDialog<String>(
+      final choice = await showDialog<String>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Approve Action'),
@@ -314,7 +353,6 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
               ],
             ),
           ),
-
         ),
       );
     }
@@ -380,18 +418,21 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final paginatedState = ref.watch(requestProvider);
-    final requests = paginatedState.requests;
     final authState = ref.watch(authProvider);
     final user = authState.user;
+    final bool isManagementUser = user?.role.toLowerCase() == 'management';
 
     RequestModel? ticket;
-    try {
-      ticket = requests.firstWhere((r) => r.id == widget.ticketId || r.slNo == widget.ticketId);
-    } catch (_) {
-      if (!paginatedState.isLoading && requests.isNotEmpty) {
-        ticket = requests.first;
-      }
+    if (isManagementUser) {
+      final mgmtState = ref.watch(roleManagementProvider);
+      try {
+        ticket = mgmtState.requests.firstWhere((r) => r.id == widget.ticketId || r.slNo == widget.ticketId);
+      } catch (_) { if (mgmtState.requests.isNotEmpty && !mgmtState.isLoading) ticket = mgmtState.requests.first; }
+    } else {
+      final paginatedState = ref.watch(requestProvider);
+      try {
+        ticket = paginatedState.requests.firstWhere((r) => r.id == widget.ticketId || r.slNo == widget.ticketId);
+      } catch (_) { if (paginatedState.requests.isNotEmpty && !paginatedState.isLoading) ticket = paginatedState.requests.first; }
     }
 
     if (ticket == null || user == null) {
@@ -399,14 +440,14 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
     }
 
     final currentTicket = ticket;
-    
-    // --- STEP 1: COMPUTE FLAGS FROM API & USER ---
+
+    // --- FLAGS & LOGIC ---
     final bool isClosed = currentTicket.isClosed || currentTicket.acknowledgement != null;
     final bool isPendingAck = currentTicket.overallStatus == RequestStatus.resolved && currentTicket.acknowledgement == null;
     final bool isForwarded = currentTicket.isForwarded;
     final String currentEmpId = user.empId;
     final String currentDept = user.department;
-    final String currentRole = user.role; 
+    final String currentRole = user.role;
 
     final bool isRM = currentRole.toUpperCase() == 'RM';
     final bool isHOD = currentRole.toUpperCase() == 'HOD';
@@ -416,25 +457,17 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
     final bool isRequestor = currentRole.toUpperCase() == 'REQUESTOR';
 
     final bool isOwnRequest = currentTicket.empId == currentEmpId;
-
     final bool isFromOtherDept = currentTicket.department.toLowerCase() != currentDept.toLowerCase();
-    final bool isAssignedToMyDept = currentTicket.assignedDepartments != null && 
-                                    currentTicket.assignedDepartments!.map((e) => e.toLowerCase()).contains(currentDept.toLowerCase());
-    
+    final bool isAssignedToMyDept = currentTicket.assignedDepartments != null &&
+        currentTicket.assignedDepartments!.map((e) => e.toLowerCase()).contains(currentDept.toLowerCase());
+
     final bool isTeamMemberIncoming = isFromOtherDept && isAssignedToMyDept;
-
     final bool isAssignedDeptUser = (isRM || isHOD) && isAssignedToMyDept && isFromOtherDept;
+    final bool isSpecificallyAssigned = (currentTicket.assignedPersonEmpIds != null &&
+        currentTicket.assignedPersonEmpIds!.contains(currentEmpId)) && !isOwnRequest;
 
-    final bool isSpecificallyAssigned = (currentTicket.assignedPersonEmpIds != null && 
-                                        currentTicket.assignedPersonEmpIds!.contains(currentEmpId)) && 
-                                        !isOwnRequest;
+    final bool isForwardedAway = isForwarded && !isAssignedToMyDept && !isManagement && !isOwnRequest;
 
-    final bool isForwardedAway = isForwarded && 
-                                 !isAssignedToMyDept && 
-                                 !isManagement && 
-                                 !isOwnRequest;
-
-    // --- STEP 2: MY APPROVAL STATUS ---
     RequestStatus myApprovalStatus = RequestStatus.pending;
     if (isRM) {
       myApprovalStatus = isAssignedDeptUser ? currentTicket.assignedRmStatus : currentTicket.rmStatus;
@@ -447,54 +480,28 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
     final bool isActedApproved = myApprovalStatus == RequestStatus.approved || myApprovalStatus == RequestStatus.forwarded;
     final bool isActedChecking = myApprovalStatus == RequestStatus.checking;
 
-    // --- STEP 3: SECTION VISIBILITY ---
-    final bool canApprove = (isRM || isHOD || isDeptHOD || isManagement) && 
-                            !isClosed && !isPendingAck && !isOwnRequest && !isForwardedAway;
-
-    final bool canUserCheck = isTeamMemberIncoming && 
-                              !isClosed && !isPendingAck && !isAdmin && !canApprove && !isForwardedAway;
-
-    final bool canUserForward = (currentDept == 'Facilities') && 
-                                isTeamMemberIncoming && 
-                                !isClosed && !isPendingAck && !isAdmin && !canApprove && !isForwardedAway;
+    final bool canApprove = (isRM || isHOD || isDeptHOD || isManagement) && !isClosed && !isPendingAck && !isOwnRequest && !isForwardedAway;
+    final bool canUserCheck = isTeamMemberIncoming && !isClosed && !isPendingAck && !isAdmin && !canApprove && !isForwardedAway;
+    final bool canUserForward = (currentDept == 'Facilities') && isTeamMemberIncoming && !isClosed && !isPendingAck && !isAdmin && !canApprove && !isForwardedAway;
 
     final bool showActionSection = canApprove || canUserCheck || canUserForward;
-
-    // --- STEP 4 & 5: INDIVIDUAL BUTTON RULES & CLOSE TICKET ---
     final bool deptChanged = selectedDept != null && selectedDept != currentTicket.assignedDepartment;
-
-    final bool isFacilitiesRequestorClose = (currentDept == 'Facilities' && 
-                                             isRequestor && 
-                                             currentTicket.department == 'Facilities' && 
-                                             !isAssignedToMyDept && 
-                                             !isClosed && !isPendingAck);
+    final bool isFacilitiesRequestorClose = (currentDept == 'Facilities' && isRequestor && currentTicket.department == 'Facilities' && !isAssignedToMyDept && !isClosed && !isPendingAck);
 
     final bool canClose = ((isDeptHOD || isManagement) && !isOwnRequest && !isClosed && !isPendingAck && !isForwardedAway) ||
-                          (isTeamMemberIncoming && !isClosed && !isPendingAck && !isAdmin && !isForwardedAway) ||
-                          (isSpecificallyAssigned && !isClosed && !isPendingAck && !isAdmin) ||
-                          isFacilitiesRequestorClose;
+        (isTeamMemberIncoming && !isClosed && !isPendingAck && !isAdmin && !isForwardedAway) ||
+        (isSpecificallyAssigned && !isClosed && !isPendingAck && !isAdmin) || isFacilitiesRequestorClose;
 
-    // --- STEP 6: ACKNOWLEDGEMENT ---
     final bool showAcknowledgement = (isPendingAck || currentTicket.overallStatus == RequestStatus.closed) && isOwnRequest;
-
-    // --- STEP 7: CHAT ---
     final bool canChat = !isAdmin;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        title: Text(
-          'REQUEST DETAILS — #${currentTicket.slNo}',
-          style: const TextStyle(color: Color(0xFF1E293B), fontWeight: FontWeight.w900, fontSize: 16),
-        ),
+        backgroundColor: Colors.white, elevation: 0,
+        title: Text('REQUEST DETAILS — #${currentTicket.slNo}', style: const TextStyle(color: Color(0xFF1E293B), fontWeight: FontWeight.w900, fontSize: 16)),
         actions: [
-          IconButton(
-            onPressed: _loadInitialData,
-            icon: const Icon(Icons.refresh, color: Color(0xFF5C59E8)),
-            tooltip: 'Refresh',
-          ),
+          IconButton(onPressed: _loadInitialData, icon: const Icon(Icons.refresh, color: Color(0xFF5C59E8)), tooltip: 'Refresh'),
           IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close, color: Colors.black)),
         ],
       ),
@@ -511,89 +518,34 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
                   Stack(
                     children: [
                       Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF5C59E8).withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: IconButton(
-                          onPressed: _showChatBottomSheet,
-                          icon: const Icon(Icons.chat_bubble_outline, color: Color(0xFF5C59E8)),
-                          tooltip: 'Open Chat',
-                        ),
+                        decoration: BoxDecoration(color: const Color(0xFF5C59E8).withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                        child: IconButton(onPressed: _showChatBottomSheet, icon: const Icon(Icons.chat_bubble_outline, color: Color(0xFF5C59E8))),
                       ),
                       if (currentTicket.unreadChatCount > 0)
-                        Positioned(
-                          right: 8,
-                          top: 8,
-                          child: Container(
-                            width: 10,
-                            height: 10,
-                            decoration: BoxDecoration(
-                              color: Colors.red,
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 2),
-                            ),
-                          ),
-                        ),
+                        Positioned(right: 8, top: 8, child: Container(width: 10, height: 10, decoration: BoxDecoration(color: Colors.red, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2)))),
                     ],
                   ),
               ],
             ),
             const SizedBox(height: 16),
-            Row(
-              children: [
-                _buildInfoField('DATE', DateFormat('dd/MM/yyyy').format(currentTicket.date)),
-                const SizedBox(width: 16),
-                _buildInfoField('EMP ID', currentTicket.empId),
-              ],
-            ),
+            Row(children: [_buildInfoField('DATE', DateFormat('dd/MM/yyyy').format(currentTicket.date)), const SizedBox(width: 16), _buildInfoField('EMP ID', currentTicket.empId)]),
             const SizedBox(height: 16),
-            Row(
-              children: [
-                _buildInfoField('NAME', currentTicket.userName),
-                const SizedBox(width: 16),
-                _buildInfoField('DEPARTMENT', currentTicket.department),
-              ],
-            ),
+            Row(children: [_buildInfoField('NAME', currentTicket.userName), const SizedBox(width: 16), _buildInfoField('DEPARTMENT', currentTicket.department)]),
             const SizedBox(height: 16),
-            Row(
-              children: [
-                _buildInfoField('DESIGNATION', currentTicket.designation),
-                const SizedBox(width: 16),
-                _buildInfoField('LOCATION', currentTicket.location),
-              ],
-            ),
+            Row(children: [_buildInfoField('DESIGNATION', currentTicket.designation), const SizedBox(width: 16), _buildInfoField('LOCATION', currentTicket.location)]),
             const SizedBox(height: 24),
             const Text('REQUEST TITLE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
             const SizedBox(height: 8),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(8)),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(Icons.computer, size: 16, color: Colors.orange),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      currentTicket.title,
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            Container(width: double.infinity, padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(8)), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [const Icon(Icons.computer, size: 16, color: Colors.orange), const SizedBox(width: 8), Expanded(child: Text(currentTicket.title, style: const TextStyle(fontWeight: FontWeight.bold)))])) ,
             const SizedBox(height: 24),
             const Text('ASSIGNED DEPARTMENT', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
             const SizedBox(height: 8),
             Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
+              width: double.infinity, padding: const EdgeInsets.symmetric(horizontal: 12),
               decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
               child: DropdownButtonHideUnderline(
                 child: DropdownButton<String>(
-                  value: selectedDept,
+                  value: (selectedDept != null && departments.contains(selectedDept)) ? selectedDept : null,
                   isExpanded: true,
                   hint: const Text("Select Department", style: TextStyle(fontSize: 12, color: Colors.grey)),
                   icon: const Icon(Icons.arrow_drop_down, color: Colors.grey),
@@ -603,278 +555,72 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
                 ),
               ),
             ),
-
             if (currentTicket.assignedDepartments != null && currentTicket.assignedDepartments!.isNotEmpty) ...[
               const SizedBox(height: 24),
               const Text('ALL ASSIGNED DEPARTMENTS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
               const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: currentTicket.assignedDepartments!.map((dept) => Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF5C59E8).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: const Color(0xFF5C59E8).withOpacity(0.2)),
-                  ),
-                  child: Text(
-                    dept,
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF5C59E8)),
-                  ),
-                )).toList(),
-              ),
+              Wrap(spacing: 8, runSpacing: 8, children: currentTicket.assignedDepartments!.map((dept) => Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), decoration: BoxDecoration(color: const Color(0xFF5C59E8).withOpacity(0.1), borderRadius: BorderRadius.circular(20), border: Border.all(color: const Color(0xFF5C59E8).withOpacity(0.2))), child: Text(dept, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF5C59E8))))).toList()),
             ],
-
-            if (currentTicket.assignedPersons != null && currentTicket.assignedPersons!.isNotEmpty) ...[
-              const SizedBox(height: 24),
-              const Text('ASSIGNED PERSON(S)', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: currentTicket.assignedPersons!.map((person) => Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF10B981).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: const Color(0xFF10B981).withOpacity(0.2)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.person_outline, size: 14, color: Color(0xFF10B981)),
-                      const SizedBox(width: 4),
-                      Text(
-                        person,
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
-                      ),
-                    ],
-                  ),
-                )).toList(),
-              ),
-            ],
-
             const SizedBox(height: 24),
             const Text('REQUEST DESCRIPTION', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
             const SizedBox(height: 8),
             _buildStaticField(currentTicket.description),
             const SizedBox(height: 16),
-
-            _AttachmentsSection(
-              ticket: currentTicket,
-              onPreview: (url, name) => _previewDocument(currentTicket, customUrl: url, customName: name),
-              onDownload: _downloadFile,
-            ),
-
+            _AttachmentsSection(ticket: currentTicket, onPreview: (url, name) => _previewDocument(currentTicket, customUrl: url, customName: name), onDownload: _downloadFile),
             const SizedBox(height: 32),
             const Text('ADMIN ACTION', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
             const SizedBox(height: 16),
-            Column(
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: _buildStatusBox('RM STATUS', currentTicket.rmStatus)),
-                    const SizedBox(width: 8),
-                    Expanded(child: _buildStatusBox('HOD STATUS', currentTicket.hodStatus)),
-                    const SizedBox(width: 8),
-                    Expanded(child: _buildStatusBox('ASSIGNED RM', currentTicket.assignedRmStatus)),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildStatusBox('ASSIGNED HOD', currentTicket.assignedHodStatus),
-                    const SizedBox(width: 40),
-                    _buildStatusBox('DeptHOD STATUS', currentTicket.deptHodStatus),
-                  ],
-                ),
-              ],
-            ),
-
+            Column(children: [Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Expanded(child: _buildStatusBox('RM STATUS', currentTicket.rmStatus)), const SizedBox(width: 8), Expanded(child: _buildStatusBox('HOD STATUS', currentTicket.hodStatus)), const SizedBox(width: 8), Expanded(child: _buildStatusBox('ASSIGNED RM', currentTicket.assignedRmStatus))]), const SizedBox(height: 24), Row(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [_buildStatusBox('ASSIGNED HOD', currentTicket.assignedHodStatus), const SizedBox(width: 40), _buildStatusBox('DeptHOD STATUS', currentTicket.deptHodStatus)])]),
             if (currentTicket.dueDate != null) ...[
               const SizedBox(height: 24),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final now = DateTime.now();
-                  final today = DateTime(now.year, now.month, now.day);
-                  final dueDate = currentTicket.dueDate!;
-                  final int requestorDaysLeft = dueDate.difference(today).inDays;
-                  final bool isOverdue = requestorDaysLeft < 0;
-                  int colorDays = requestorDaysLeft < 0 ? 0 : requestorDaysLeft;
-
-                  Color bgColor; Color textColor; Color badgeColor; String urgencyText;
-                  if (colorDays < 7) {
-                    bgColor = const Color(0xFFFEF2F2); textColor = const Color(0xFF991B1B); badgeColor = const Color(0xFFEF4444); urgencyText = 'High Urgency';
-                  } else if (colorDays <= 15) {
-                    bgColor = const Color(0xFFFFF7ED); textColor = const Color(0xFF9A3412); badgeColor = const Color(0xFFF97316); urgencyText = 'Medium Urgency';
-                  } else {
-                    bgColor = const Color(0xFFF0FDF4); textColor = const Color(0xFF166534); badgeColor = const Color(0xFF10B981); urgencyText = 'Low Urgency';
-                  }
-
-                  return Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(12)),
-                    child: Row(
-                      children: [
-                        Icon(Icons.calendar_today_outlined, color: textColor, size: 20),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('DUE DATE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
-                              const SizedBox(height: 4),
-                              Text(DateFormat('dd/MM/yyyy').format(dueDate), style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: textColor)),
-                            ],
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(color: badgeColor, borderRadius: BorderRadius.circular(20)),
-                          child: Column(
-                            children: [
-                              Text(urgencyText, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                              Text(isOverdue ? 'Overdue' : '$requestorDaysLeft days left', style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 8)),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
+              _buildDueDateInfo(currentTicket.dueDate!),
             ],
-
             if (currentTicket.checkingDeadline != null) ...[
               const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: const Color(0xFFFFFBEB), border: Border.all(color: const Color(0xFFFEF3C7)), borderRadius: BorderRadius.circular(16)),
-                child: Row(
-                  children: [
-                    const Icon(Icons.access_time, color: Color(0xFFF59E0B), size: 20),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('CHECKING DEADLINE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFFB45309))),
-                          const SizedBox(height: 4),
-                          Text(DateFormat('d/M/yyyy').format(currentTicket.checkingDeadline!), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF92400E))),
-                          if (currentTicket.checkingReason != null && currentTicket.checkingReason!.isNotEmpty)
-                            Padding(padding: const EdgeInsets.only(top: 4), child: Text(currentTicket.checkingReason!, style: const TextStyle(fontSize: 12, color: Color(0xFF92400E)))),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(color: const Color(0xFFF59E0B), borderRadius: BorderRadius.circular(20)),
-                      child: Text(
-                        (() {
-                          final now = DateTime.now();
-                          final today = DateTime(now.year, now.month, now.day);
-                          final int diff = currentTicket.checkingDeadline!.difference(today).inDays;
-                          return diff <= 0 ? 'Due' : '${diff}d left';
-                        })(),
-                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              _buildCheckingDeadlineInfo(currentTicket),
             ],
-
-            // --- STEP 6: ACKNOWLEDGEMENT BUTTONS ---
             if (showAcknowledgement) ...[
               const SizedBox(height: 24),
               const Center(child: Text('Have you received the requested items/service?', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E293B), fontSize: 13))),
               const SizedBox(height: 16),
-              if (currentTicket.acknowledgement != null)
-                Center(child: StatusBadge(status: currentTicket.acknowledgement!.toLowerCase().contains('not') ? RequestStatus.open : RequestStatus.resolved))
-              else
-                Row(
-                  children: [
-                    Expanded(child: _buildActionButton('RESOLVED', const Color(0xFF10B981), Icons.check_circle_outline, _isActionInProgress ? null : () => _updateTicketStatus(RequestStatus.resolved))),
-                    const SizedBox(width: 12),
-                    Expanded(child: _buildActionButton('NOT RESOLVED', const Color(0xFFEF4444), Icons.cancel_outlined, _isActionInProgress ? null : () => _updateTicketStatus(RequestStatus.open))),
-                  ],
-                ),
+              if (currentTicket.acknowledgement != null) Center(child: StatusBadge(status: currentTicket.acknowledgement!.toLowerCase().contains('not') ? RequestStatus.open : RequestStatus.resolved))
+              else Row(children: [Expanded(child: _buildActionButton('RESOLVED', const Color(0xFF10B981), Icons.check_circle_outline, _isActionInProgress ? null : () => _updateTicketStatus(RequestStatus.resolved))), const SizedBox(width: 12), Expanded(child: _buildActionButton('NOT RESOLVED', const Color(0xFFEF4444), Icons.cancel_outlined, _isActionInProgress ? null : () => _updateTicketStatus(RequestStatus.open)))]),
             ],
-
             const SizedBox(height: 16),
-            
-            // --- STEP 3 & 4: ACTION SECTION ---
             if (showActionSection) ...[
-              TextField(
-                controller: _commentController, 
-                enabled: !isActedApproved,
-                decoration: const InputDecoration(hintText: 'Add your official comments here...', fillColor: Colors.white)
-              ),
+              TextField(controller: _commentController, enabled: !isActedApproved, decoration: const InputDecoration(hintText: 'Add your official comments here...', fillColor: Colors.white)),
               const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.start,
-                children: [
-                  if (canApprove) ...[
-                    Expanded(
-                      child: _buildActionButton(
-                        deptChanged ? 'FORWARD' : 'APPROVE', 
-                        deptChanged ? Colors.blue : const Color(0xFF10B981), 
-                        deptChanged ? Icons.arrow_forward : Icons.check_circle_outline,
-                        isActedApproved ? null : () => deptChanged ? _forwardTicket() : _handleApproveAction(currentTicket)
-                      )
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-                  if (canUserForward) ...[
-                    Expanded(
-                      child: _buildActionButton(
-                        'FORWARD', 
-                        Colors.blue, 
-                        Icons.arrow_forward,
-                        deptChanged ? () => _forwardTicket() : null
-                      )
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-                  if (canApprove || canUserCheck || canUserForward) ...[
-                     if (!(canApprove && isActedApproved || isActedChecking))
-                      Expanded(child: _buildActionButton('CHECKING', Colors.orange, Icons.access_time, () async {
-                        final result = await showDialog(context: context, builder: (context) => CheckingDeadlineModal(ticketId: widget.ticketId));
-                        if (result == true) _loadInitialData();
-                      })),
-                    const SizedBox(width: 8),
-                  ],
-                  if (canApprove)
-                    Expanded(child: _buildActionButton('REJECT', Colors.red, Icons.cancel_outlined, isActedApproved ? null : () => _updateTicketStatus(RequestStatus.rejected))),
-                ],
-              ),
+              Row(mainAxisAlignment: MainAxisAlignment.start, children: [
+                if (canApprove) ...[Expanded(child: _buildActionButton(deptChanged ? 'FORWARD' : 'APPROVE', deptChanged ? Colors.blue : const Color(0xFF10B981), deptChanged ? Icons.arrow_forward : Icons.check_circle_outline, isActedApproved ? null : () => deptChanged ? _forwardTicket() : _handleApproveAction(currentTicket))), const SizedBox(width: 8)],
+                if (canUserForward) ...[Expanded(child: _buildActionButton('FORWARD', Colors.blue, Icons.arrow_forward, deptChanged ? () => _forwardTicket() : null)), const SizedBox(width: 8)],
+                if (canApprove || canUserCheck || canUserForward) ...[if (!(canApprove && isActedApproved || isActedChecking)) Expanded(child: _buildActionButton('CHECKING', Colors.orange, Icons.access_time, () async { final result = await showDialog(context: context, builder: (context) => CheckingDeadlineModal(ticketId: widget.ticketId)); if (result == true) _loadInitialData(); })), const SizedBox(width: 8)],
+                if (canApprove) Expanded(child: _buildActionButton('REJECT', Colors.red, Icons.cancel_outlined, isActedApproved ? null : () => _updateTicketStatus(RequestStatus.rejected))),
+              ]),
             ],
-            
             const SizedBox(height: 12),
-            
-            // --- STEP 5: CLOSE TICKET BUTTON ---
-            if (canClose)
-              SizedBox(
-                width: double.infinity, height: 48,
-                child: ElevatedButton(
-                  onPressed: () async {
-                    final result = await showDialog(context: context, builder: (context) => CloseTicketModal(ticketId: widget.ticketId));
-                    if (result == true) _loadInitialData();
-                  },
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                  child: const Text('Close Ticket', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                ),
-              ),
+            if (canClose) SizedBox(width: double.infinity, height: 48, child: ElevatedButton(onPressed: () async { final result = await showDialog(context: context, builder: (context) => CloseTicketModal(ticketId: widget.ticketId)); if (result == true) _loadInitialData(); }, style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))), child: const Text('Close Ticket', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)))),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildDueDateInfo(DateTime dueDate) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final int requestorDaysLeft = dueDate.difference(today).inDays;
+    final bool isOverdue = requestorDaysLeft < 0;
+    int colorDays = requestorDaysLeft < 0 ? 0 : requestorDaysLeft;
+    Color bgColor; Color textColor; Color badgeColor; String urgencyText;
+    if (colorDays < 7) { bgColor = const Color(0xFFFEF2F2); textColor = const Color(0xFF991B1B); badgeColor = const Color(0xFFEF4444); urgencyText = 'High Urgency'; }
+    else if (colorDays <= 15) { bgColor = const Color(0xFFFFF7ED); textColor = const Color(0xFF9A3412); badgeColor = const Color(0xFFF97316); urgencyText = 'Medium Urgency'; }
+    else { bgColor = const Color(0xFFF0FDF4); textColor = const Color(0xFF166534); badgeColor = const Color(0xFF10B981); urgencyText = 'Low Urgency'; }
+
+    return Container(width: double.infinity, padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(12)), child: Row(children: [Icon(Icons.calendar_today_outlined, color: textColor, size: 20), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('DUE DATE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)), const SizedBox(height: 4), Text(DateFormat('dd/MM/yyyy').format(dueDate), style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: textColor))])), Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), decoration: BoxDecoration(color: badgeColor, borderRadius: BorderRadius.circular(20)), child: Column(children: [Text(urgencyText, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)), Text(isOverdue ? 'Overdue' : '$requestorDaysLeft days left', style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 8))]))]));
+  }
+
+  Widget _buildCheckingDeadlineInfo(RequestModel ticket) {
+    return Container(width: double.infinity, padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: const Color(0xFFFFFBEB), border: Border.all(color: const Color(0xFFFEF3C7)), borderRadius: BorderRadius.circular(16)), child: Row(children: [const Icon(Icons.access_time, color: Color(0xFFF59E0B), size: 20), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('CHECKING DEADLINE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFFB45309))), const SizedBox(height: 4), Text(DateFormat('d/M/yyyy').format(ticket.checkingDeadline!), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF92400E))), if (ticket.checkingReason != null && ticket.checkingReason!.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Text(ticket.checkingReason!, style: const TextStyle(fontSize: 12, color: Color(0xFF92400E))))])), Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), decoration: BoxDecoration(color: const Color(0xFFF59E0B), borderRadius: BorderRadius.circular(20)), child: Text((() { final now = DateTime.now(); final today = DateTime(now.year, now.month, now.day); final int diff = ticket.checkingDeadline!.difference(today).inDays; return diff <= 0 ? 'Due' : '${diff}d left'; })(), style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)))]));
   }
 
   Widget _buildSectionHeader(IconData icon, String title) {
@@ -882,16 +628,7 @@ class _RequestDetailsScreenState extends ConsumerState<RequestDetailsScreen> {
   }
 
   Widget _buildInfoField(String label, String value) {
-    return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 4),
-          Container(width: double.infinity, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)), child: Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
-        ],
-      ),
-    );
+    return Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold)), const SizedBox(height: 4), Container(width: double.infinity, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)), child: Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)))]));
   }
 
   Widget _buildStaticField(String text) {
@@ -934,51 +671,14 @@ class _AttachmentsSection extends StatelessWidget {
     }
 
     if (attachmentWidgets.isEmpty) {
-      return Container(
-        width: double.infinity, padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(color: const Color(0xFFF8FAFC), border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(8)),
-        child: const Center(child: Text('No document attached', style: TextStyle(color: Colors.grey, fontSize: 12))),
-      );
+      return Container(width: double.infinity, padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: const Color(0xFFF8FAFC), border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(8)), child: const Center(child: Text('No document attached', style: TextStyle(color: Colors.grey, fontSize: 12))));
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: attachmentWidgets.map((w) => Padding(padding: const EdgeInsets.only(bottom: 8.0), child: w)).toList(),
-    );
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: attachmentWidgets.map((w) => Padding(padding: const EdgeInsets.only(bottom: 8.0), child: w)).toList());
   }
 
   Widget _buildAttachmentItem(BuildContext context, String url, String name) {
-    return Container(
-      width: double.infinity, padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(color: const Color(0xFFF8FAFC), border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(8)),
-      child: Row(
-        children: [
-          InkWell(
-            onTap: () => onPreview(url, name),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _isImage(name)
-                    ? ClipRRect(borderRadius: BorderRadius.circular(4), child: Image.network(url, width: 40, height: 40, fit: BoxFit.cover, errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 40, color: Colors.red)))
-                    : const Icon(Icons.insert_drive_file, color: Color(0xFF5C59E8), size: 20),
-                const SizedBox(width: 8),
-              ],
-            ),
-          ),
-          Expanded(
-            child: InkWell(
-              onTap: () => onPreview(url, name),
-              child: Text(name, style: const TextStyle(color: Color(0xFF5C59E8), fontWeight: FontWeight.bold, decoration: TextDecoration.underline, fontSize: 12), overflow: TextOverflow.ellipsis, maxLines: 1),
-            ),
-          ),
-          IconButton(
-            onPressed: () => onDownload(url),
-            icon: const Icon(Icons.download_rounded, color: Color(0xFF5C59E8), size: 20),
-            tooltip: 'Download',
-          ),
-        ],
-      ),
-    );
+    return Container(width: double.infinity, padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: const Color(0xFFF8FAFC), border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(8)), child: Row(children: [InkWell(onTap: () => onPreview(url, name), child: Row(mainAxisSize: MainAxisSize.min, children: [_isImage(name) ? ClipRRect(borderRadius: BorderRadius.circular(4), child: Image.network(url, width: 40, height: 40, fit: BoxFit.cover, errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 40, color: Colors.red))) : const Icon(Icons.insert_drive_file, color: Color(0xFF5C59E8), size: 20), const SizedBox(width: 8)])), Expanded(child: InkWell(onTap: () => onPreview(url, name), child: Text(name, style: const TextStyle(color: Color(0xFF5C59E8), fontWeight: FontWeight.bold, decoration: TextDecoration.underline, fontSize: 12), overflow: TextOverflow.ellipsis, maxLines: 1))), IconButton(onPressed: () => onDownload(url), icon: const Icon(Icons.download_rounded, color: Color(0xFF5C59E8), size: 20), tooltip: 'Download')]));
   }
 }
 
@@ -996,9 +696,7 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
   bool _isSending = false;
   PlatformFile? _stagedFile;
 
-  final List<String> _allowedExtensions = [
-    'jpg', 'jpeg', 'png', 'pdf', 'docx', 'xlsx', 'csv', 'mp3', 'wav', 'm4a'
-  ];
+  final List<String> _allowedExtensions = ['jpg', 'jpeg', 'png', 'pdf', 'docx', 'xlsx', 'csv', 'mp3', 'wav', 'm4a'];
 
   @override
   void initState() {
@@ -1015,27 +713,26 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
   Future<void> _loadMessages() async {
     if (!mounted) return;
     setState(() => _isChatLoading = true);
+
+    final role = ref.read(authProvider).user?.role.toLowerCase();
     
-    // Also refresh the ticket details in case status changed
-    await ref.read(requestProvider.notifier).fetchRequestById(widget.ticketId);
-    
-    final messages = await ref.read(requestProvider.notifier).fetchChatMessages(widget.ticketId);
-    if (mounted) {
-      setState(() {
-        _chatMessages.clear();
-        _chatMessages.addAll(messages);
-        _isChatLoading = false;
-      });
+    if (role == 'management') {
+      await ref.read(roleManagementProvider.notifier).fetchRequestById(widget.ticketId);
+      final mgmtState = ref.read(roleManagementProvider);
+      try {
+        final ticket = mgmtState.requests.firstWhere((r) => r.id == widget.ticketId || r.slNo == widget.ticketId);
+        if (mounted) setState(() { _chatMessages.clear(); _chatMessages.addAll(ticket.chatMessages); _isChatLoading = false; });
+      } catch (_) { if (mounted) setState(() => _isChatLoading = false); }
+    } else {
+      await ref.read(requestProvider.notifier).fetchRequestById(widget.ticketId);
+      final messages = await ref.read(requestProvider.notifier).fetchChatMessages(widget.ticketId);
+      if (mounted) setState(() { _chatMessages.clear(); _chatMessages.addAll(messages); _isChatLoading = false; });
     }
   }
 
   Future<void> _pickFile() async {
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: _allowedExtensions,
-        withData: true,
-      );
+      FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: _allowedExtensions, withData: true);
       if (result != null) setState(() => _stagedFile = result.files.single);
     } catch (e) { debugPrint('Error picking file: $e'); }
   }
@@ -1061,20 +758,28 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
 
   Future<void> _downloadFile(String url) async {
     final Uri uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not download file'), backgroundColor: Colors.red));
-      }
-    }
+    if (await canLaunchUrl(uri)) { await launchUrl(uri, mode: LaunchMode.externalApplication); }
+    else { if (mounted) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not download file'), backgroundColor: Colors.red)); } }
   }
 
   @override
   Widget build(BuildContext context) {
-    final paginatedState = ref.watch(requestProvider);
-    final requests = paginatedState.requests;
-    final currentTicket = requests.firstWhere((r) => r.id == widget.ticketId || r.slNo == widget.ticketId, orElse: () => requests.first);
+    final role = ref.watch(authProvider).user?.role.toLowerCase();
+    RequestModel? currentTicket;
+
+    if (role == 'management') {
+      final mgmtState = ref.watch(roleManagementProvider);
+      try {
+        currentTicket = mgmtState.requests.firstWhere((r) => r.id == widget.ticketId || r.slNo == widget.ticketId);
+      } catch (_) { if (mgmtState.requests.isNotEmpty) currentTicket = mgmtState.requests.first; }
+    } else {
+      final paginatedState = ref.watch(requestProvider);
+      try {
+        currentTicket = paginatedState.requests.firstWhere((r) => r.id == widget.ticketId || r.slNo == widget.ticketId);
+      } catch (_) { if (paginatedState.requests.isNotEmpty) currentTicket = paginatedState.requests.first; }
+    }
+
+    if (currentTicket == null) return const Center(child: CircularProgressIndicator());
     final bool isChatDisabled = currentTicket.isClosed || currentTicket.acknowledgement != null;
 
     return DraggableScrollableSheet(
@@ -1102,9 +807,9 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
             Expanded(
               child: _isChatLoading
                   ? const Center(child: CircularProgressIndicator())
-                  : ListView.builder(controller: controller, padding: const EdgeInsets.all(24), itemCount: _chatMessages.length, itemBuilder: (context, index) => _buildChatBubble(_chatMessages[index], currentTicket)),
+                  : ListView.builder(controller: controller, padding: const EdgeInsets.all(24), itemCount: _chatMessages.length, itemBuilder: (context, index) => _buildChatBubble(_chatMessages[index], currentTicket!)),
             ),
-            _buildInputSection(currentTicket),
+            _buildInputSection(currentTicket!),
           ],
         ),
       ),
@@ -1113,249 +818,39 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
 
   Widget _buildInputSection(RequestModel ticket) {
     final bool isChatDisabled = ticket.isClosed || ticket.acknowledgement != null;
-
     if (isChatDisabled) {
-      return Container(
-        padding: EdgeInsets.fromLTRB(24, 16, 24, 16 + MediaQuery.of(context).viewInsets.bottom),
-        decoration: const BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: Color(0xFFE2E8F0)))),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-          decoration: BoxDecoration(
-            color: const Color(0xFFFEF2F2),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFFFEE2E2)),
-          ),
-          child: const Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.lock_outline, size: 18, color: Color(0xFFEF4444)),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'This ticket has been closed. Chat is disabled.',
-                  style: TextStyle(color: Color(0xFFEF4444), fontWeight: FontWeight.bold, fontSize: 13),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
+      return Container(padding: EdgeInsets.fromLTRB(24, 16, 24, 16 + MediaQuery.of(context).viewInsets.bottom), decoration: const BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: Color(0xFFE2E8F0)))), child: Container(padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16), decoration: BoxDecoration(color: const Color(0xFFFEF2F2), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFFEE2E2))), child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.lock_outline, size: 18, color: Color(0xFFEF4444)), SizedBox(width: 12), Expanded(child: Text('This ticket has been closed. Chat is disabled.', style: TextStyle(color: Color(0xFFEF4444), fontWeight: FontWeight.bold, fontSize: 13), textAlign: TextAlign.center))])));
     }
-
-    return Container(
-      padding: EdgeInsets.fromLTRB(16, 8, 16, 8 + MediaQuery.of(context).viewInsets.bottom),
-      decoration: const BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: Color(0xFFE2E8F0)))),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (_stagedFile != null)
-            ListTile(dense: true, leading: const Icon(Icons.attach_file, size: 16, color: Color(0xFF5C59E8)), title: Text(_stagedFile!.name, style: const TextStyle(fontSize: 12)), trailing: IconButton(onPressed: () => setState(() => _stagedFile = null), icon: const Icon(Icons.close, size: 16, color: Colors.red))),
-          Row(
-            children: [
-              IconButton(onPressed: _pickFile, icon: const Icon(Icons.attach_file, color: Colors.grey)),
-              Expanded(child: TextField(controller: _messageController, decoration: const InputDecoration(hintText: 'Type your message...', border: InputBorder.none, enabledBorder: InputBorder.none, focusedBorder: InputBorder.none, filled: false))),
-              IconButton(onPressed: _isSending ? null : _sendMessage, icon: _isSending ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send, color: Color(0xFF5C59E8))),
-            ],
-          ),
-        ],
-      ),
-    );
+    return Container(padding: EdgeInsets.fromLTRB(16, 8, 16, 8 + MediaQuery.of(context).viewInsets.bottom), decoration: const BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: Color(0xFFE2E8F0)))), child: Column(mainAxisSize: MainAxisSize.min, children: [if (_stagedFile != null) ListTile(dense: true, leading: const Icon(Icons.attach_file, size: 16, color: Color(0xFF5C59E8)), title: Text(_stagedFile!.name, style: const TextStyle(fontSize: 12)), trailing: IconButton(onPressed: () => setState(() => _stagedFile = null), icon: const Icon(Icons.close, size: 16, color: Colors.red))), Row(children: [IconButton(onPressed: _pickFile, icon: const Icon(Icons.attach_file, color: Colors.grey)), Expanded(child: TextField(controller: _messageController, decoration: const InputDecoration(hintText: 'Type your message...', border: InputBorder.none, enabledBorder: InputBorder.none, focusedBorder: InputBorder.none, filled: false))), IconButton(onPressed: _isSending ? null : _sendMessage, icon: _isSending ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send, color: Color(0xFF5C59E8)))])]));
   }
 
   Widget _buildChatBubble(ChatModel chat, RequestModel ticket) {
     final authState = ref.read(authProvider);
     final user = authState.user;
     final bool isMe = chat.senderId == user?.userId;
-
     final String chatText = chat.text?.toLowerCase() ?? '';
     final String status = chat.status?.toLowerCase() ?? '';
-
     final bool isApproved = status == 'approved' || chatText.contains('approved the request');
     final bool isChecking = status == 'checking' || chatText.contains('checking the request');
     final bool isRejected = status == 'rejected' || chatText.contains('rejected the request');
     final bool isForwarded = status == 'forwarded' || chatText.contains('forwarded');
-
     final bool isNotResolved = chatText.contains('not resolved') || chatText.contains('not received');
-    final bool isResolved = (status == 'resolved' || chatText.contains('resolved') || chatText.contains('received') || chatText.contains('receipt') || chatText.contains('confirmed receipt'))
-        && !isNotResolved && !chatText.contains('resolution submitted');
-
+    final bool isResolved = (status == 'resolved' || chatText.contains('resolved') || chatText.contains('received') || chatText.contains('receipt') || chatText.contains('confirmed receipt')) && !isNotResolved && !chatText.contains('resolution submitted');
     final bool isClosureMessage = status == 'closed' || chatText.contains('ticket closed') || chatText.contains('resolution submitted') || (chatText.contains('officially closed') && !isResolved);
 
-    // Default Properties
-    Color cardBg = const Color(0xFFF8FAFC);
-    Color borderColor = const Color(0xFFE2E8F0);
-    Color primaryColor = const Color(0xFF64748B);
-    IconData statusIcon = Icons.message_outlined;
-    String pillLabel = "PURPOSE";
+    Color cardBg = const Color(0xFFF8FAFC); Color borderColor = const Color(0xFFE2E8F0); Color primaryColor = const Color(0xFF64748B); IconData statusIcon = Icons.message_outlined; String pillLabel = "PURPOSE";
+    if (isApproved || isResolved) { cardBg = const Color(0xFFF0FDF4); borderColor = const Color(0xFFDCFCE7); primaryColor = const Color(0xFF10B981); statusIcon = Icons.check_circle_outline; pillLabel = isResolved ? "RESOLVED" : "APPROVED"; }
+    else if (isForwarded) { cardBg = const Color(0xFFF0F7FF); borderColor = const Color(0xFFD0E7FF); primaryColor = const Color(0xFF3B82F6); statusIcon = Icons.shortcut; pillLabel = "FORWARDED"; }
+    else if (isChecking) { cardBg = const Color(0xFFFFFBEB); borderColor = const Color(0xFFFEF3C7); primaryColor = const Color(0xFFF59E0B); statusIcon = Icons.access_time; pillLabel = "CHECKING"; }
+    else if (isRejected || isNotResolved) { cardBg = const Color(0xFFFEF2F2); borderColor = const Color(0xFFFEE2E2); primaryColor = const Color(0xFFEF4444); statusIcon = Icons.cancel_outlined; pillLabel = isRejected ? "REJECTED" : "NOT RESOLVED"; }
+    else if (isClosureMessage) { cardBg = const Color(0xFFFEF2F2); borderColor = const Color(0xFFFEE2E2); primaryColor = const Color(0xFFEF4444); statusIcon = Icons.lock_outline; }
 
-    if (isApproved || isResolved) {
-      cardBg = const Color(0xFFF0FDF4); 
-      borderColor = const Color(0xFFDCFCE7);
-      primaryColor = const Color(0xFF10B981);
-      statusIcon = Icons.check_circle_outline;
-      pillLabel = isResolved ? "RESOLVED" : "APPROVED";
-    } else if (isForwarded) {
-      cardBg = const Color(0xFFF0F7FF); 
-      borderColor = const Color(0xFFD0E7FF);
-      primaryColor = const Color(0xFF3B82F6);
-      statusIcon = Icons.shortcut;
-      pillLabel = "FORWARDED";
-    } else if (isChecking) {
-      cardBg = const Color(0xFFFFFBEB); 
-      borderColor = const Color(0xFFFEF3C7);
-      primaryColor = const Color(0xFFF59E0B);
-      statusIcon = Icons.access_time;
-      pillLabel = "CHECKING";
-    } else if (isRejected || isNotResolved) {
-      cardBg = const Color(0xFFFEF2F2); 
-      borderColor = const Color(0xFFFEE2E2);
-      primaryColor = const Color(0xFFEF4444);
-      statusIcon = Icons.cancel_outlined;
-      pillLabel = isRejected ? "REJECTED" : "NOT RESOLVED";
-    } else if (isClosureMessage) {
-      cardBg = const Color(0xFFFEF2F2);
-      borderColor = const Color(0xFFFEE2E2);
-      primaryColor = const Color(0xFFEF4444);
-      statusIcon = Icons.lock_outline;
-    }
-
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 20),
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: borderColor, width: 1.5),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(statusIcon, size: 18, color: primaryColor),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: (isClosureMessage)
-                      ? const SizedBox.shrink()
-                      : Text(
-                          isMe && user != null
-                              ? "${user.department} - ${user.role}"
-                              : (chat.senderDepartment == 'N/A' || chat.senderDepartment == 'System')
-                                  ? (chat.senderRole.toLowerCase().contains('requestor')
-                                      ? "${ticket.department} - ${chat.senderRole}"
-                                      : "${ticket.assignedDepartment ?? ticket.department} - ${chat.senderRole}")
-                                  : "${chat.senderDepartment} - ${chat.senderRole}",
-                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: Color(0xFF1E293B)),
-                        ),
-                ),
-                Text(
-                  DateFormat('d/M/yyyy - hh:mm a').format(chat.createdAt),
-                  style: TextStyle(fontSize: 11, color: Colors.grey[600], fontWeight: FontWeight.w500),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            if (!isClosureMessage)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: primaryColor.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  "$pillLabel: ${ticket.title.toUpperCase()}",
-                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: primaryColor),
-                ),
-              ),
-            const SizedBox(height: 12),
-            if (isForwarded)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8.0),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text("Dept: ", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
-                    Text(chat.originalDept ?? ticket.department, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, decoration: TextDecoration.lineThrough, color: Colors.grey)),
-                    const Padding(padding: EdgeInsets.symmetric(horizontal: 6), child: Icon(Icons.arrow_forward, size: 12, color: Color(0xFF475569))),
-                    Text(chat.changedDept ?? ticket.assignedDepartment ?? 'N/A', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: primaryColor)),
-                  ],
-                ),
-              ),
-            Text(
-              chat.text ?? '',
-              style: const TextStyle(fontSize: 12, color: Color(0xFF334155), height: 1.5, fontWeight: FontWeight.w500),
-            ),
-            if (chat.fileUrl != null || (isClosureMessage && ticket.attachedFileUrl != null))
-              Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: InkWell(
-                  onTap: () => _previewChatAttachment(chat),
-                  child: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.6),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: primaryColor.withOpacity(0.3)),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.insert_drive_file, size: 16, color: primaryColor),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            chat.fileName ?? ticket.attachedFileName ?? 'Attachment',
-                            style: TextStyle(fontSize: 11, color: primaryColor, fontWeight: FontWeight.bold),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: () => _downloadFile(chat.fileUrl ?? ticket.attachedFileUrl!),
-                          icon: Icon(Icons.download_rounded, size: 18, color: primaryColor),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
+    return Container(width: double.infinity, margin: const EdgeInsets.only(bottom: 20), decoration: BoxDecoration(color: cardBg, borderRadius: BorderRadius.circular(12), border: Border.all(color: borderColor, width: 1.5)), child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [Icon(statusIcon, size: 18, color: primaryColor), const SizedBox(width: 10), Expanded(child: (isClosureMessage) ? const SizedBox.shrink() : Text(isMe && user != null ? "${user.department} - ${user.role}" : (chat.senderDepartment == 'N/A' || chat.senderDepartment == 'System') ? (chat.senderRole.toLowerCase().contains('requestor') ? "${ticket.department} - ${chat.senderRole}" : "${ticket.assignedDepartment ?? ticket.department} - ${chat.senderRole}") : "${chat.senderDepartment} - ${chat.senderRole}", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: Color(0xFF1E293B)))), Text(DateFormat('d/M/yyyy - hh:mm a').format(chat.createdAt), style: TextStyle(fontSize: 11, color: Colors.grey[600], fontWeight: FontWeight.w500))]), const SizedBox(height: 10), if (!isClosureMessage) Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: primaryColor.withOpacity(0.12), borderRadius: BorderRadius.circular(8)), child: Text("$pillLabel: ${ticket.title.toUpperCase()}", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: primaryColor))), const SizedBox(height: 12), if (isForwarded) Padding(padding: const EdgeInsets.only(bottom: 8.0), child: Row(mainAxisSize: MainAxisSize.min, children: [const Text("Dept: ", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF475569))), Text(chat.originalDept ?? ticket.department, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, decoration: TextDecoration.lineThrough, color: Colors.grey)), const Padding(padding: EdgeInsets.symmetric(horizontal: 6), child: Icon(Icons.arrow_forward, size: 12, color: Color(0xFF475569))), Text(chat.changedDept ?? ticket.assignedDepartment ?? 'N/A', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: primaryColor))])), Text(chat.text ?? '', style: const TextStyle(fontSize: 12, color: Color(0xFF334155), height: 1.5, fontWeight: FontWeight.w500)), if (chat.fileUrl != null || (isClosureMessage && ticket.attachedFileUrl != null)) Padding(padding: const EdgeInsets.only(top: 12), child: InkWell(onTap: () => _previewChatAttachment(chat), child: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.white.withOpacity(0.6), borderRadius: BorderRadius.circular(8), border: Border.all(color: primaryColor.withOpacity(0.3))), child: Row(children: [Icon(Icons.insert_drive_file, size: 16, color: primaryColor), const SizedBox(width: 8), Expanded(child: Text(chat.fileName ?? ticket.attachedFileName ?? 'Attachment', style: TextStyle(fontSize: 11, color: primaryColor, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)), IconButton(onPressed: () => _downloadFile(chat.fileUrl ?? ticket.attachedFileUrl!), icon: Icon(Icons.download_rounded, size: 18, color: primaryColor), padding: EdgeInsets.zero, constraints: const BoxConstraints())]))))])));
   }
 
   void _previewChatAttachment(ChatModel chat) {
     if (chat.fileUrl != null) {
-      showDialog(
-        context: context,
-        builder: (context) => Dialog(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 800, maxHeight: 600),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AppBar(
-                  title: Text(chat.fileName ?? 'Attachment Preview'),
-                  automaticallyImplyLeading: false,
-                  actions: [
-                    IconButton(
-                      onPressed: () => _downloadFile(chat.fileUrl!),
-                      icon: const Icon(Icons.download),
-                      tooltip: 'Download',
-                    ),
-                    IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
-                  ],
-                ),
-                Expanded(child: Padding(padding: const EdgeInsets.all(16.0), child: _buildChatAttachmentPreview(chat))),
-              ],
-            ),
-          ),
-        ),
-      );
+      showDialog(context: context, builder: (context) => Dialog(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 800, maxHeight: 600), child: Column(mainAxisSize: MainAxisSize.min, children: [AppBar(title: Text(chat.fileName ?? 'Attachment Preview'), automaticallyImplyLeading: false, actions: [IconButton(onPressed: () => _downloadFile(chat.fileUrl!), icon: const Icon(Icons.download), tooltip: 'Download'), IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close))]), Expanded(child: Padding(padding: const EdgeInsets.all(16.0), child: _buildChatAttachmentPreview(chat)))]))));
     }
   }
 
@@ -1363,29 +858,8 @@ class _ChatBottomSheetState extends ConsumerState<_ChatBottomSheet> {
     final fileName = chat.fileName?.toLowerCase() ?? '';
     final url = chat.fileUrl ?? '';
     if (fileName.endsWith('.jpg') || fileName.endsWith('.jpeg') || fileName.endsWith('.png') || fileName.endsWith('.gif') || fileName.endsWith('.webp')) {
-      return Image.network(url, fit: BoxFit.contain, errorBuilder: (context, error, stackTrace) {
-        print('Failed to load chat attachment image. URL: $url, Error: $error');
-        return const Center(child: Text('Failed to load image'));
-      }, loadingBuilder: (context, child, loadingProgress) => loadingProgress == null ? child : const Center(child: CircularProgressIndicator()));
+      return Image.network(url, fit: BoxFit.contain, errorBuilder: (context, error, stackTrace) => const Center(child: Text('Failed to load image')), loadingBuilder: (context, child, loadingProgress) => loadingProgress == null ? child : const Center(child: CircularProgressIndicator()));
     }
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.insert_drive_file, size: 64, color: Colors.grey),
-          const SizedBox(height: 16),
-          Text('Preview not available for this file type.', style: TextStyle(color: Colors.grey[600])),
-          const SizedBox(height: 8),
-          Text(chat.fileName ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 24),
-          ElevatedButton.icon(
-            onPressed: () => _downloadFile(url),
-            icon: const Icon(Icons.download),
-            label: const Text('Download File'),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF5C59E8), foregroundColor: Colors.white),
-          ),
-        ],
-      ),
-    );
+    return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [const Icon(Icons.insert_drive_file, size: 64, color: Colors.grey), const SizedBox(height: 16), Text('Preview not available for this file type.', style: TextStyle(color: Colors.grey[600])), const SizedBox(height: 8), Text(chat.fileName ?? '', style: const TextStyle(fontWeight: FontWeight.bold)), const SizedBox(height: 24), ElevatedButton.icon(onPressed: () => _downloadFile(url), icon: const Icon(Icons.download), label: const Text('Download File'), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF5C59E8), foregroundColor: Colors.white))]));
   }
 }

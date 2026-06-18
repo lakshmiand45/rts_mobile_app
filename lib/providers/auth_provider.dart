@@ -1,11 +1,10 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/user_model.dart';
-import '../core/services/api_service.dart';
+import '../core/services/auth_api.dart';
 
 class AuthState {
   final UserModel? user;
@@ -40,10 +39,9 @@ class AuthState {
 }
 
 class AuthNotifier extends StateNotifier<AuthState> {
-  final ApiService _apiService;
-  AuthNotifier(this._apiService) : super(AuthState()) {
+  final AuthApi _authApi;
+  AuthNotifier(this._authApi) : super(AuthState()) {
     _loadUser();
-
   }
 
   static const String _userKey = 'logged_in_user';
@@ -57,7 +55,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final rolesJson = prefs.getString(_rolesKey);
 
     if (token != null) {
-      _apiService.setToken(token);
+      _authApi.setToken(token);
     }
 
     List<dynamic>? availableRoles;
@@ -72,25 +70,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
     if (userJson != null) {
       final user = UserModel.fromJson(userJson);
       state = state.copyWith(user: user, availableRoles: availableRoles);
-
     }
   }
-
-
-
-
-
-
 
   Future<Map<String, dynamic>> login(String email, String password) async {
     try {
       state = state.copyWith(isLoading: true);
-      final response = await _apiService.post('/auth/login', {
-        'email': email,
-        'password': password,
-      });
-
-      final responseData = json.decode(response.body);
+      final responseData = await _authApi.login(email, password);
 
       if (responseData['needsRoleSelection'] == true) {
         state = state.copyWith(
@@ -120,12 +106,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
       state = state.copyWith(isLoading: true);
 
       if (state.tempToken != null) {
-        _apiService.setToken(state.tempToken!);
+        _authApi.setToken(state.tempToken!);
       }
 
-      final response = await _apiService.post('/auth/select-role', roleData);
-      final responseData = json.decode(response.body);
-
+      final responseData = await _authApi.selectRole(roleData);
       final data = responseData['data'] ?? responseData;
 
       final String? token = data['token'];
@@ -158,7 +142,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       tempToken: null,
       availableRoles: availableRoles,
     );
-    _apiService.setToken(token);
+    _authApi.setToken(token);
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_userKey, user.toJson());
@@ -166,8 +150,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
     if (availableRoles != null) {
       await prefs.setString(_rolesKey, json.encode(availableRoles));
     }
-
-
   }
 
   Future<void> logout() async {
@@ -175,29 +157,23 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
     try {
       state = state.copyWith(isLoading: true);
-
-
-      await _apiService.post('/auth/logout', {});
+      await _authApi.logout();
     } catch (e) {
       debugPrint('DEBUG: Logout API Error: $e');
     } finally {
       state = AuthState();
-      _apiService.setToken('');
+      _authApi.setToken('');
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_userKey);
       await prefs.remove(_tokenKey);
       await prefs.remove(_rolesKey);
-
-
     }
   }
 
-  // Rest of the methods (forgotPassword, resetPassword, switchRole) remain the same...
   Future<bool> switchRole(String role, String dept) async {
     try {
       state = state.copyWith(isLoading: true);
-      final response = await _apiService.post('/auth/switch-role', {'role': role, 'dept': dept});
-      final responseData = json.decode(response.body);
+      final responseData = await _authApi.switchRole(role, dept);
       final data = responseData['data'] ?? responseData;
       final String token = data['token'];
       final user = UserModel.fromMap(data['user']);
@@ -212,22 +188,24 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<Map<String, dynamic>> forgotPassword(String email) async {
     try {
-      final response = await _apiService.post('/auth/forgot-password', {'email': email});
-      final responseData = json.decode(response.body);
+      final responseData = await _authApi.forgotPassword(email);
       return {'success': true, 'message': responseData['message'] ?? 'Reset link sent if email exists.'};
-    } catch (e) { return {'success': false, 'message': e.toString()}; }
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
   }
 
   Future<Map<String, dynamic>> resetPassword(String token, String newPassword) async {
     try {
-      final response = await _apiService.post('/auth/reset-password/$token', {'password': newPassword});
-      final responseData = json.decode(response.body);
+      final responseData = await _authApi.resetPassword(token, newPassword);
       return {'success': true, 'message': responseData['message'] ?? 'Password reset successfully.'};
-    } catch (e) { return {'success': false, 'message': e.toString()}; }
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
   }
 }
 
 final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
-  final apiService = ref.watch(apiServiceProvider);
-  return AuthNotifier(apiService);
+  final authApi = ref.watch(authApiProvider);
+  return AuthNotifier(authApi);
 });

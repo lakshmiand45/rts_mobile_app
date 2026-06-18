@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:typed_data';
-import 'package:http/http.dart' as http;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart';
@@ -9,6 +8,7 @@ import 'package:intl/intl.dart';
 import '../models/request_model.dart';
 import '../models/chat_model.dart';
 import '../core/services/api_service.dart';
+import '../core/services/request_api.dart';
 import '../models/user_model.dart';
 import 'auth_provider.dart';
 
@@ -32,6 +32,8 @@ class PaginatedRequestState {
   final String? selectedAssignedDept;
   final List<String> selectedStatuses;
   final String? selectedDate;
+  final String? startDate;
+  final String? endDate;
   final String search;
 
   PaginatedRequestState({
@@ -52,6 +54,8 @@ class PaginatedRequestState {
     this.selectedAssignedDept,
     this.selectedStatuses = const [],
     this.selectedDate,
+    this.startDate,
+    this.endDate,
     this.search = '',
   });
 
@@ -68,11 +72,13 @@ class PaginatedRequestState {
     List<String>? filterAssignedDepts,
     List<String>? filterStatuses,
     String? scope,
-    String? selectedName,
-    String? selectedDept,
-    String? selectedAssignedDept,
+    String? Function()? selectedName,
+    String? Function()? selectedDept,
+    String? Function()? selectedAssignedDept,
     List<String>? selectedStatuses,
-    String? selectedDate,
+    String? Function()? selectedDate,
+    String? Function()? startDate,
+    String? Function()? endDate,
     String? search,
   }) {
     final nextCurrentPage = currentPage ?? this.currentPage;
@@ -91,11 +97,13 @@ class PaginatedRequestState {
       filterAssignedDepts: filterAssignedDepts ?? this.filterAssignedDepts,
       filterStatuses: filterStatuses ?? this.filterStatuses,
       scope: scope ?? this.scope,
-      selectedName: selectedName ?? this.selectedName,
-      selectedDept: selectedDept ?? this.selectedDept,
-      selectedAssignedDept: selectedAssignedDept ?? this.selectedAssignedDept,
+      selectedName: selectedName != null ? selectedName() : this.selectedName,
+      selectedDept: selectedDept != null ? selectedDept() : this.selectedDept,
+      selectedAssignedDept: selectedAssignedDept != null ? selectedAssignedDept() : this.selectedAssignedDept,
       selectedStatuses: selectedStatuses ?? this.selectedStatuses,
-      selectedDate: selectedDate ?? this.selectedDate,
+      selectedDate: selectedDate != null ? selectedDate() : this.selectedDate,
+      startDate: startDate != null ? startDate() : this.startDate,
+      endDate: endDate != null ? endDate() : this.endDate,
       search: search ?? this.search,
     );
   }
@@ -105,6 +113,7 @@ class PaginatedRequestState {
     bool dept = false,
     bool assignedDept = false,
     bool date = false,
+    bool range = false,
     bool status = false,
   }) {
     return PaginatedRequestState(
@@ -125,16 +134,18 @@ class PaginatedRequestState {
       selectedAssignedDept: assignedDept ? null : selectedAssignedDept,
       selectedStatuses: status ? [] : selectedStatuses,
       selectedDate: date ? null : selectedDate,
+      startDate: range ? null : startDate,
+      endDate: range ? null : endDate,
       search: search,
     );
   }
 }
 
 class RequestNotifier extends StateNotifier<PaginatedRequestState> {
-  final ApiService _apiService;
+  final RequestApi _requestApi;
   final Ref _ref;
 
-  RequestNotifier(this._apiService, this._ref) : super(PaginatedRequestState(requests: [])) {
+  RequestNotifier(this._requestApi, this._ref) : super(PaginatedRequestState(requests: [])) {
     fetchFilterOptions();
   }
 
@@ -147,43 +158,51 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
     String? assignedDept,
     List<String>? statuses,
     String? date,
+    String? startDate,
+    String? endDate,
     String? search,
     bool clearName = false,
     bool clearDept = false,
     bool clearAssignedDept = false,
     bool clearDate = false,
+    bool clearRange = false,
     bool clearStatus = false,
   }) async {
     bool resetName = clearName;
     bool resetAssignedDept = clearAssignedDept;
 
-    debugPrint('DEBUG: updateFilters - Incoming statuses: $statuses, search: $search');
-
     if (scope == 'sent') resetName = true;
     if (scope == 'received') resetAssignedDept = true;
 
-    if (resetName || clearDept || resetAssignedDept || clearDate || clearStatus) {
-      state = state.clearFilter(name: resetName, dept: clearDept, assignedDept: resetAssignedDept, date: clearDate, status: clearStatus);
+    if (resetName || clearDept || resetAssignedDept || clearDate || clearRange || clearStatus) {
+      state = state.clearFilter(
+        name: resetName,
+        dept: clearDept,
+        assignedDept: resetAssignedDept,
+        date: clearDate,
+        range: clearRange,
+        status: clearStatus,
+      );
     }
 
     state = state.copyWith(
       scope: scope,
-      selectedName: name,
-      selectedDept: dept,
-      selectedAssignedDept: assignedDept,
+      selectedName: name != null ? () => name : null,
+      selectedDept: dept != null ? () => dept : null,
+      selectedAssignedDept: assignedDept != null ? () => assignedDept : null,
       selectedStatuses: statuses,
-      selectedDate: date,
+      selectedDate: date != null ? () => date : null,
+      startDate: startDate != null ? () => startDate : null,
+      endDate: endDate != null ? () => endDate : null,
       search: search,
     );
-    debugPrint('DEBUG: updateFilters - State after copyWith: search: ${state.search}');
 
     await fetchRequests(page: 1);
   }
 
   Future<void> fetchFilterOptions() async {
     try {
-      final response = await _apiService.get('/requests/filters');
-      final data = json.decode(response.body);
+      final data = await _requestApi.fetchFilterOptions();
       state = state.copyWith(
         filterNames: List<String>.from(data['names'] ?? []),
         filterDepts: List<String>.from(data['depts'] ?? []),
@@ -197,18 +216,8 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
 
   Future<List<UserModel>> fetchUsersByDept(String depts) async {
     try {
-      final response = await _apiService.get('/requests/users-by-dept?depts=$depts');
-      if (response.statusCode == 200) {
-        final dynamic decodedData = json.decode(response.body);
-        List<dynamic> listData = [];
-        if (decodedData is List) {
-          listData = decodedData;
-        } else if (decodedData is Map) {
-          listData = decodedData['users'] ?? decodedData['data'] ?? [];
-        }
-        return listData.map((json) => UserModel.fromMap(json)).toList();
-      }
-      return [];
+      final listData = await _requestApi.fetchUsersByDept(depts);
+      return listData.map((json) => UserModel.fromMap(json)).toList();
     } catch (e) {
       debugPrint('DEBUG: fetchUsersByDept Error: $e');
       return [];
@@ -217,14 +226,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
 
   Future<List<String>> fetchAllDepartments() async {
     try {
-      final response = await _apiService.get('/requests/departments');
-      if (response.statusCode == 200) {
-        final dynamic decodedData = json.decode(response.body);
-        if (decodedData is Map && decodedData.containsKey('departments')) {
-          return List<String>.from(decodedData['departments']);
-        }
-      }
-      return [];
+      return await _requestApi.fetchAllDepartments();
     } catch (e) {
       debugPrint('DEBUG: fetchAllDepartments Error: $e');
       return [];
@@ -243,27 +245,18 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
   }) async {
     final authState = _ref.read(authProvider);
     final user = authState.user;
-    //for management role filter added
-    bool hasFilters = state.selectedName != null ||
-        state.selectedDept != null ||
-        state.selectedAssignedDept != null ||
-        state.selectedStatuses.isNotEmpty ||
-        state.selectedDate != null ||
-        state.search.isNotEmpty ||
-        state.scope != 'all';
 
-    if (user?.role.toLowerCase() == 'management' && !hasFilters) {
-      await fetchHODPendingRequests();
-      return;
-    }
+    final String path = user?.role.toLowerCase() == 'management'
+        ? '/requests/hod-pending'
+        : '/requests';
 
     state = state.copyWith(
       scope: scope,
-      selectedName: name,
-      selectedDept: dept,
-      selectedAssignedDept: assignedDept,
+      selectedName: name != null ? () => name : null,
+      selectedDept: dept != null ? () => dept : null,
+      selectedAssignedDept: assignedDept != null ? () => assignedDept : null,
       selectedStatuses: statuses,
-      selectedDate: date,
+      selectedDate: date != null ? () => date : null,
       search: search,
       isLoading: true,
       currentPage: page,
@@ -299,30 +292,45 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
 
       if (state.search.isNotEmpty) queryParams['search'] = state.search;
 
-      final queryString = Uri(queryParameters: queryParams).query;
-      debugPrint('DEBUG: Fetch Requests Query String: $queryString');
-      final response = await _apiService.get('/requests?$queryString');
-      final dynamic decodedData = json.decode(response.body);
-      debugPrint('DEBUG: Fetch Requests Response Status: ${response.statusCode}');
-
+      final dynamic decodedData = await _requestApi.fetchRequests(path, queryParams);
 
       List<dynamic> listData = [];
       int totalItems = 0;
       int totalPages = 1;
 
       if (decodedData is Map) {
-        listData = decodedData['requests'] ?? decodedData['data'] ?? [];
+        listData = (decodedData['requests'] ?? decodedData['data'] ?? []) as List<dynamic>;
         if (decodedData['pagination'] != null) {
           final p = decodedData['pagination'];
           totalItems = p['total'] ?? 0;
           totalPages = p['totalPages'] ?? 1;
         }
+      } else if (decodedData is List) {
+        listData = decodedData as List<dynamic>;
+        totalItems = decodedData.length;
+        totalPages = 1;
       }
 
       final mappedRequests = listData.map((json) => RequestModel.fromMap(json as Map<String, dynamic>)).toList();
 
-      // Multi-field Local Search/Filtering (Universal Search)
       List<RequestModel> filteredRequests = mappedRequests;
+
+      if (state.selectedName != null) {
+        final filterName = state.selectedName!.toLowerCase();
+        filteredRequests = filteredRequests.where((r) => r.userName.toLowerCase() == filterName).toList();
+      }
+
+      if (state.selectedDept != null) {
+        final filterDept = state.selectedDept!.toLowerCase();
+        filteredRequests = filteredRequests.where((r) => r.department.toLowerCase() == filterDept).toList();
+      }
+
+      if (state.selectedAssignedDept != null) {
+        final filterAssignedDept = state.selectedAssignedDept!.toLowerCase();
+        filteredRequests = filteredRequests.where((r) {
+          return r.assignedDepartments?.any((d) => d.toLowerCase() == filterAssignedDept) ?? false;
+        }).toList();
+      }
 
       if (state.selectedStatuses.isNotEmpty) {
         final lowercaseSelectedStatuses = state.selectedStatuses.map((s) => s.toLowerCase()).toList();
@@ -354,6 +362,14 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
         }).toList();
       }
 
+      if (state.startDate != null && state.endDate != null) {
+        final start = DateFormat('yyyy-MM-dd').parse(state.startDate!);
+        final end = DateFormat('yyyy-MM-dd').parse(state.endDate!).add(const Duration(days: 1));
+        filteredRequests = filteredRequests.where((request) {
+          return request.date.isAfter(start) && request.date.isBefore(end);
+        }).toList();
+      }
+
       state = state.copyWith(
         requests: filteredRequests,
         totalPages: totalPages,
@@ -371,31 +387,27 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
 
   Future<void> fetchRequestById(String id) async {
     try {
-      final response = await _apiService.get('/requests/$id');
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final dynamic decoded = json.decode(response.body);
-        final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
-        final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
+      final data = await _requestApi.fetchRequestById(id);
+      final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
 
-        bool found = false;
-        final newList = state.requests.map((req) {
-          if (req.id == updatedReq.id || req.slNo == updatedReq.slNo) {
-            found = true;
-            return updatedReq.copyWith(
-              unreadChatCount: req.unreadChatCount,
-              isRead: updatedReq.isRead || req.isRead,
-            );
-          }
-          return req;
-        }).toList();
-
-        if (!found) {
-          newList.add(updatedReq);
+      bool found = false;
+      final newList = state.requests.map((req) {
+        if (req.id == updatedReq.id || req.slNo == updatedReq.slNo) {
+          found = true;
+          return updatedReq.copyWith(
+            unreadChatCount: req.unreadChatCount,
+            isRead: updatedReq.isRead || req.isRead,
+          );
         }
+        return req;
+      }).toList();
 
-        state = state.copyWith(requests: newList);
-        _sortRequests();
+      if (!found) {
+        newList.add(updatedReq);
       }
+
+      state = state.copyWith(requests: newList);
+      _sortRequests();
     } catch (e) {
       debugPrint('DEBUG: fetchRequestById Error: $e');
     }
@@ -404,14 +416,13 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
   Future<void> fetchHODPendingRequests() async {
     state = state.copyWith(isLoading: true);
     try {
-      final response = await _apiService.get('/requests/hod-pending');
-      final dynamic decodedData = json.decode(response.body);
+      final dynamic decodedData = await _requestApi.fetchHODPendingRequests();
 
       List<dynamic> listData = [];
       if (decodedData is List) {
-        listData = decodedData;
+        listData = decodedData as List<dynamic>;
       } else if (decodedData is Map) {
-        listData = decodedData['requests'] ?? decodedData['data'] ?? [];
+        listData = (decodedData['requests'] ?? decodedData['data'] ?? []) as List<dynamic>;
       }
 
       final mappedRequests = listData.map((json) => RequestModel.fromMap(json as Map<String, dynamic>)).toList();
@@ -457,13 +468,8 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
 
   Future<List<ChatModel>> fetchChatMessages(String ticketId) async {
     try {
-      final response = await _apiService.get('/requests/$ticketId/chat');
-      if (response.statusCode == 200) {
-        final dynamic decoded = json.decode(response.body);
-        final List<dynamic> data = decoded is List ? decoded : (decoded['data'] ?? []);
-        return data.map((json) => ChatModel.fromMap(json)).toList();
-      }
-      return [];
+      final data = await _requestApi.fetchChatMessages(ticketId);
+      return data.map((json) => ChatModel.fromMap(json)).toList();
     } catch (e) { return []; }
   }
 
@@ -483,38 +489,26 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
   void _sortRequests() {
     final sorted = List<RequestModel>.from(state.requests);
     sorted.sort((a, b) {
-      // Logic for "Unread": request is not seen yet OR has unread chat messages
       final aUnread = !a.isRead || a.unreadChatCount > 0;
       final bUnread = !b.isRead || b.unreadChatCount > 0;
 
       if (aUnread && !bUnread) return -1;
       if (!aUnread && bUnread) return 1;
 
-      // Secondary sort: Date Descending
       return b.date.compareTo(a.date);
     });
     state = state.copyWith(requests: sorted);
   }
 
   Future<ChatModel?> sendChatMessage(String ticketId, String text, String type) async {
-    print('DEBUG: sendChatMessage called for ticketId: $ticketId, type: $type, text: $text');
     try {
-      final response = await _apiService.post('/requests/$ticketId/chat', {'type': type, 'text': text});
-      print('DEBUG: sendChatMessage API response status: ${response.statusCode}, body: ${response.body}');
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final dynamic decoded = json.decode(response.body);
-        final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
-        final newMessage = ChatModel.fromMap(data);
+      final data = await _requestApi.sendChatMessage(ticketId, text, type);
+      final newMessage = ChatModel.fromMap(data);
 
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setInt('$_lastMsgIdKey$ticketId', newMessage.id);
-        print('DEBUG: sendChatMessage successful, newMessage ID: ${newMessage.id}');
-        return newMessage;
-      }
-      print('DEBUG: sendChatMessage failed, status code: ${response.statusCode}');
-      return null;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('$_lastMsgIdKey$ticketId', newMessage.id);
+      return newMessage;
     } catch (e) {
-      print('DEBUG: sendChatMessage error: $e');
       return null;
     }
   }
@@ -526,26 +520,18 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
         'text': (text == null || text.trim().isEmpty) ? 'Attachment' : text,
       };
 
-      final streamedResponse = await _apiService.postMultipart(
-        '/requests/$ticketId/chat',
-        fields,
+      final data = await _requestApi.sendFileAttachment(
+        ticketId,
+        fields: fields,
         filePath: filePath,
         fileBytes: fileBytes,
         fileName: fileName,
-        fileKey: 'file',
       );
 
-      final response = await http.Response.fromStream(streamedResponse);
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final dynamic decoded = json.decode(response.body);
-        final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
-        final newMessage = ChatModel.fromMap(data);
-
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setInt('$_lastMsgIdKey$ticketId', newMessage.id);
-        return newMessage;
-      }
+      final newMessage = ChatModel.fromMap(data);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('$_lastMsgIdKey$ticketId', newMessage.id);
+      return newMessage;
     } catch (e) {
       debugPrint('DEBUG: sendFileAttachment exception: $e');
     }
@@ -554,7 +540,6 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
 
   Future<bool> addRequest(RequestModel newRequest, {List<PlatformFile>? multiFiles}) async {
     try {
-      http.Response response;
       final fields = {
         'purpose': newRequest.title,
         'assignedDept': (newRequest.assignedDepartments?.length == 1)
@@ -565,47 +550,32 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
         'description': newRequest.description
       };
 
+      List<FileData>? fileDataList;
       if (multiFiles != null && multiFiles.isNotEmpty) {
-        final List<FileData> fileDataList = multiFiles.map((f) => FileData(
+        fileDataList = multiFiles.map((f) => FileData(
           path: kIsWeb ? null : f.path,
           bytes: f.bytes,
           name: f.name,
         )).toList();
-
-        final streamedResponse = await _apiService.postMultipart(
-            '/requests',
-            fields,
-            files: fileDataList,
-            fileKey: 'files'
-        );
-        response = await http.Response.fromStream(streamedResponse);
-      } else if (newRequest.attachedFileBytes != null || newRequest.attachedFilePath != null) {
-        final streamedResponse = await _apiService.postMultipart(
-            '/requests',
-            fields,
-            filePath: newRequest.attachedFilePath,
-            fileBytes: newRequest.attachedFileBytes,
-            fileName: newRequest.attachedFileName,
-            fileKey: 'files'
-        );
-        response = await http.Response.fromStream(streamedResponse);
-      } else {
-        response = await _apiService.post('/requests', newRequest.toMap());
       }
 
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final dynamic decodedBody = json.decode(response.body);
-        final requestData = decodedBody is Map && decodedBody.containsKey('data') ? decodedBody['data'] : decodedBody;
-        final createdRequest = RequestModel.fromMap(requestData as Map<String, dynamic>);
+      final requestData = await _requestApi.addRequest(
+        data: newRequest.toMap(),
+        fields: fields,
+        files: fileDataList,
+        filePath: newRequest.attachedFilePath,
+        fileBytes: newRequest.attachedFileBytes,
+        fileName: newRequest.attachedFileName,
+      );
 
-        state = state.copyWith(
-          requests: [createdRequest, ...state.requests],
-          totalItems: state.totalItems + 1,
-        );
-        _sortRequests();
-        return true;
-      }
-      return false;
+      final createdRequest = RequestModel.fromMap(requestData as Map<String, dynamic>);
+
+      state = state.copyWith(
+        requests: [createdRequest, ...state.requests],
+        totalItems: state.totalItems + 1,
+      );
+      _sortRequests();
+      return true;
     } catch (e) {
       debugPrint('DEBUG: Add Request Catch Error: $e');
       return false;
@@ -635,29 +605,22 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
 
       body['decision'] = decision;
 
-      final response = await _apiService.patch('/requests/$ticketId/approval', body);
+      final data = await _requestApi.updateApproval(ticketId, body);
+      final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
 
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final dynamic decoded = json.decode(response.body);
-        final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
-        final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
-
-        state = state.copyWith(requests: [
-          for (final req in state.requests)
-            if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req
-        ]);
-        
-        // Post message to chat if it was "Checking"
-        if (status == RequestStatus.checking && checkingDeadline != null) {
-             final formattedDate = DateFormat('dd/MM/yyyy').format(checkingDeadline);
-             final chatText = "Checking status set with deadline: $formattedDate\nReason: ${checkingReason ?? 'No reason provided.'}";
-             await sendChatMessage(ticketId, chatText, 'status_update');
-        }
-
-        _sortRequests();
-        return true;
+      state = state.copyWith(requests: [
+        for (final req in state.requests)
+          if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req
+      ]);
+      
+      if (status == RequestStatus.checking && checkingDeadline != null) {
+           final formattedDate = DateFormat('dd/MM/yyyy').format(checkingDeadline);
+           final chatText = "Checking status set with deadline: $formattedDate\nReason: ${checkingReason ?? 'No reason provided.'}";
+           await sendChatMessage(ticketId, chatText, 'status_update');
       }
-      return false;
+
+      _sortRequests();
+      return true;
     } catch (e) {
       debugPrint('DEBUG: updateStatus error: $e');
       return false;
@@ -666,26 +629,21 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
 
   Future<bool> approveAndAssignInternal(String ticketId, List<String> empIds, List<String> names, {String comment = 'Approved & assigned to internal team.'}) async {
     try {
-      final response = await _apiService.patch('/requests/$ticketId/approval', {
+      final data = await _requestApi.updateApproval(ticketId, {
         'decision': 'Approved',
         'comment': comment,
         'assignedPersonEmpId': empIds.join(', '),
         'assignedPersonName': names.join(', '),
       });
 
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final dynamic decoded = json.decode(response.body);
-        final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
-        final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
+      final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
 
-        state = state.copyWith(requests: [
-          for (final req in state.requests)
-            if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req
-        ]);
-        _sortRequests();
-        return true;
-      }
-      return false;
+      state = state.copyWith(requests: [
+        for (final req in state.requests)
+          if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req
+      ]);
+      _sortRequests();
+      return true;
     } catch (e) {
       debugPrint('DEBUG: approveAndAssignInternal error: $e');
       return false;
@@ -694,26 +652,21 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
 
   Future<bool> approveAndForwardDept(String ticketId, List<String> depts, {String comment = ''}) async {
     try {
-      final response = await _apiService.patch('/requests/$ticketId/approval', {
+      final data = await _requestApi.updateApproval(ticketId, {
         'decision': 'Forwarded',
         'comment': comment.isEmpty ? 'Approved and forwarded to ${depts.join(', ')} for technical fulfilment.' : comment,
         'newDept': depts.join(', '),
         'dualDept': true
       });
 
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final dynamic decoded = json.decode(response.body);
-        final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
-        final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
+      final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
 
-        state = state.copyWith(requests: [
-          for (final req in state.requests)
-            if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req
-        ]);
-        _sortRequests();
-        return true;
-      }
-      return false;
+      state = state.copyWith(requests: [
+        for (final req in state.requests)
+          if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req
+      ]);
+      _sortRequests();
+      return true;
     } catch (e) {
       debugPrint('DEBUG: approveAndForwardDept error: $e');
       return false;
@@ -726,24 +679,19 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
       if (status == RequestStatus.approved) decision = 'Approved';
       else if (status == RequestStatus.rejected) decision = 'Rejected';
 
-      final response = await _apiService.patch('/requests/$ticketId/hod-approval', {
+      final data = await _requestApi.updateHODApproval(ticketId, {
         'decision': decision,
         'comment': comment,
       });
 
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final dynamic decoded = json.decode(response.body);
-        final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
-        final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
+      final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
 
-        state = state.copyWith(requests: [
-          for (final req in state.requests)
-            if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req
-        ]);
-        _sortRequests();
-        return true;
-      }
-      return false;
+      state = state.copyWith(requests: [
+        for (final req in state.requests)
+          if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req
+      ]);
+      _sortRequests();
+      return true;
     } catch (e) {
       debugPrint('DEBUG: updateHODManagementApproval error: $e');
       return false;
@@ -752,7 +700,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
 
   Future<bool> forwardRequest(String ticketId, String newDept, {bool isRM = false, bool isHOD = false, bool isDeptHOD = false, bool isAdmin = false, bool isManagement = false}) async {
     try {
-      final response = await _apiService.patch('/requests/$ticketId/approval', {
+      final data = await _requestApi.updateApproval(ticketId, {
         'decision': 'Forwarded',
         'newDept': newDept,
         'comment': 'Ticket forwarded to $newDept',
@@ -762,19 +710,15 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
         'isAdmin': isAdmin,
         'isManagement': isManagement,
       });
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final dynamic decoded = json.decode(response.body);
-        final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
-        final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
+      
+      final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
 
-        state = state.copyWith(requests: [
-          for (final req in state.requests)
-            if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req
-        ]);
-        _sortRequests();
-        return true;
-      }
-      return false;
+      state = state.copyWith(requests: [
+        for (final req in state.requests)
+          if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req
+      ]);
+      _sortRequests();
+      return true;
     } catch (e) {
       debugPrint('DEBUG: forwardRequest error: $e');
       return false;
@@ -782,9 +726,7 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
   }
 
   Future<bool> closeTicket(String ticketId, String note, {String? filePath, Uint8List? fileBytes, String? fileName}) async {
-    debugPrint('DEBUG: closeTicket started for ID: $ticketId');
     try {
-      http.Response response;
       final Map<String, String> fields = {
         'note': note,
         'comment': note,
@@ -793,38 +735,22 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
         'resolution_note': note,
       };
 
-      if (filePath != null || fileBytes != null) {
-        debugPrint('DEBUG: Sending multipart PATCH request with fileKey: "file"');
-        final streamedResponse = await _apiService.patchMultipart(
-          '/requests/$ticketId/close', 
-          fields, 
-          filePath: filePath, 
-          fileBytes: fileBytes, 
-          fileName: fileName, 
-          fileKey: 'file'
-        );
-        response = await http.Response.fromStream(streamedResponse);
-      } else {
-        debugPrint('DEBUG: Sending JSON PATCH request');
-        response = await _apiService.patch('/requests/$ticketId/close', fields);
-      }
+      final data = await _requestApi.closeTicket(
+        ticketId,
+        fields,
+        filePath: filePath,
+        fileBytes: fileBytes,
+        fileName: fileName,
+      );
 
-      debugPrint('DEBUG: closeTicket Response Status: ${response.statusCode}');
-      debugPrint('DEBUG: closeTicket Response Body: ${response.body}');
+      final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
 
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final dynamic decoded = json.decode(response.body);
-        final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
-        final updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
-
-        state = state.copyWith(requests: [
-          for (final req in state.requests)
-            if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req
-        ]);
-        _sortRequests();
-        return true;
-      }
-      return false;
+      state = state.copyWith(requests: [
+        for (final req in state.requests)
+          if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req
+      ]);
+      _sortRequests();
+      return true;
     } catch (e) {
       debugPrint('DEBUG: closeTicket Exception: $e');
       return false;
@@ -833,30 +759,21 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
 
   Future<bool> acknowledgeRequest(String ticketId, String status) async {
     try {
-      final response = await _apiService.patch('/requests/$ticketId/acknowledge', {
-        'status': status,
-      });
+      final data = await _requestApi.acknowledgeRequest(ticketId, status);
+      RequestModel updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
 
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final dynamic decoded = json.decode(response.body);
-        final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
-        RequestModel updatedReq = RequestModel.fromMap(data as Map<String, dynamic>);
-
-        // Explicitly set overallStatus based on the acknowledge action
-        if (status.toLowerCase() == 'received') {
-          updatedReq = updatedReq.copyWith(overallStatus: RequestStatus.closed);
-        } else if (status.toLowerCase() == 'not received') {
-          updatedReq = updatedReq.copyWith(overallStatus: RequestStatus.open);
-        }
-
-        state = state.copyWith(requests: [
-          for (final req in state.requests)
-            if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req
-        ]);
-        _sortRequests();
-        return true;
+      if (status.toLowerCase() == 'received') {
+        updatedReq = updatedReq.copyWith(overallStatus: RequestStatus.closed);
+      } else if (status.toLowerCase() == 'not received') {
+        updatedReq = updatedReq.copyWith(overallStatus: RequestStatus.open);
       }
-      return false;
+
+      state = state.copyWith(requests: [
+        for (final req in state.requests)
+          if (req.id == updatedReq.id) updatedReq.copyWith(unreadChatCount: req.unreadChatCount) else req
+      ]);
+      _sortRequests();
+      return true;
     } catch (e) {
       debugPrint('DEBUG: acknowledgeRequest error: $e');
       return false;
@@ -866,29 +783,25 @@ class RequestNotifier extends StateNotifier<PaginatedRequestState> {
   Future<void> markAsRead(String slNo) async {
     try {
       final request = state.requests.firstWhere((r) => r.id == slNo || r.slNo == slNo);
-      final response = await _apiService.patch('/requests/${request.id}/seen', {});
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        state = state.copyWith(requests: [for (final req in state.requests) if (req.id == request.id) req.copyWith(isRead: true) else req]);
-        _sortRequests();
-      }
+      await _requestApi.markAsRead(request.id);
+      state = state.copyWith(requests: [for (final req in state.requests) if (req.id == request.id) req.copyWith(isRead: true) else req]);
+      _sortRequests();
     } catch (_) { }
   }
 
   Future<void> markAsUnread(String ticketId) async {
     try {
-      final response = await _apiService.patch('/requests/$ticketId/unread', {});
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        state = state.copyWith(requests: [
-          for (final req in state.requests)
-            if (req.id == ticketId) req.copyWith(isRead: false) else req
-        ]);
-        _sortRequests();
-      }
+      await _requestApi.markAsUnread(ticketId);
+      state = state.copyWith(requests: [
+        for (final req in state.requests)
+          if (req.id == ticketId) req.copyWith(isRead: false) else req
+      ]);
+      _sortRequests();
     } catch (_) { }
   }
 }
 
 final requestProvider = StateNotifierProvider<RequestNotifier, PaginatedRequestState>((ref) {
-  final apiService = ref.watch(apiServiceProvider);
-  return RequestNotifier(apiService, ref);
+  final requestApi = ref.watch(requestApiProvider);
+  return RequestNotifier(requestApi, ref);
 });
